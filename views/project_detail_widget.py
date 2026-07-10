@@ -26,6 +26,7 @@ class ProjectDetailWidget(QWidget):
         self.project_model = None
         self.download_thread = None
         self.template_manager = None
+        self.copied_rows = set()
         self.init_ui()
 
     def set_template_manager(self, tm):
@@ -220,6 +221,7 @@ class ProjectDetailWidget(QWidget):
         self.table_segments.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table_segments.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
         self.table_segments.cellChanged.connect(self.on_cell_changed)
+        self.table_segments.cellDoubleClicked.connect(self.on_cell_double_clicked)
         
         right_layout.addWidget(self.table_segments)
         
@@ -335,6 +337,7 @@ class ProjectDetailWidget(QWidget):
         """Loads and binds project data."""
         self.project_path = Path(project_path)
         self.project_model = ProjectModel(self.project_path)
+        self.copied_rows = set()
         
         # Switch visible UI
         self.no_selection_widget.setVisible(False)
@@ -429,26 +432,26 @@ class ProjectDetailWidget(QWidget):
             prompt_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self.table_segments.setItem(idx, 4, prompt_item)
             
-            # 5. Dual action buttons
+            # 5. Single action button (Copy Prompt)
             btn_widget = QWidget()
             btn_layout = QHBoxLayout(btn_widget)
             btn_layout.setContentsMargins(2, 2, 2, 2)
             btn_layout.setSpacing(4)
             
-            btn_copy_text = QPushButton("📋 复制文案")
             btn_copy_prompt = QPushButton("🤖 复制提示词")
-            
-            btn_copy_text.setStyleSheet("padding: 2px 6px; font-size: 11px; font-weight: normal;")
             btn_copy_prompt.setStyleSheet("padding: 2px 6px; font-size: 11px; font-weight: bold; background-color: #E0A96D; color: white;")
-            
-            btn_copy_text.clicked.connect(self.copy_segment_text)
             btn_copy_prompt.clicked.connect(self.copy_segment_prompt)
             
-            btn_layout.addWidget(btn_copy_text)
             btn_layout.addWidget(btn_copy_prompt)
             btn_widget.setLayout(btn_layout)
             
             self.table_segments.setCellWidget(idx, 5, btn_widget)
+            
+        # Apply colors for copied rows
+        if hasattr(self, 'copied_rows'):
+            for r in self.copied_rows:
+                if r < len(segments):
+                    self.change_row_color(r, copied=True)
             
         self.table_segments.blockSignals(False)
 
@@ -529,22 +532,16 @@ class ProjectDetailWidget(QWidget):
         self.table_segments.setItem(row_idx, 4, QTableWidgetItem(""))
         self.table_segments.item(row_idx, 4).setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         
-        # Add copy buttons in Col 5
+        # Add copy button in Col 5
         btn_widget = QWidget()
         btn_layout = QHBoxLayout(btn_widget)
         btn_layout.setContentsMargins(2, 2, 2, 2)
         btn_layout.setSpacing(4)
         
-        btn_copy_text = QPushButton("📋 复制文案")
         btn_copy_prompt = QPushButton("🤖 复制提示词")
-        
-        btn_copy_text.setStyleSheet("padding: 2px 6px; font-size: 11px; font-weight: normal;")
         btn_copy_prompt.setStyleSheet("padding: 2px 6px; font-size: 11px; font-weight: bold; background-color: #E0A96D; color: white;")
-        
-        btn_copy_text.clicked.connect(self.copy_segment_text)
         btn_copy_prompt.clicked.connect(self.copy_segment_prompt)
         
-        btn_layout.addWidget(btn_copy_text)
         btn_layout.addWidget(btn_copy_prompt)
         btn_widget.setLayout(btn_layout)
         
@@ -552,27 +549,7 @@ class ProjectDetailWidget(QWidget):
         
         self.table_segments.blockSignals(False)
 
-    def copy_segment_text(self):
-        """Copies the text of the row containing the clicked button to clipboard."""
-        button = self.sender()
-        if not button:
-            return
-            
-        target_row = -1
-        for row in range(self.table_segments.rowCount()):
-            widget = self.table_segments.cellWidget(row, 5)
-            if widget and button in widget.findChildren(QPushButton):
-                target_row = row
-                break
-                
-        if target_row != -1:
-            text_item = self.table_segments.item(target_row, 1)
-            if text_item:
-                text = text_item.text().strip()
-                if text:
-                    clipboard = QGuiApplication.clipboard()
-                    clipboard.setText(text)
-                    QToolTip.showText(QCursor.pos(), "已复制分句西文！", self)
+
 
     def copy_segment_prompt(self):
         """Copies generated prompt from corresponding row to clipboard."""
@@ -595,6 +572,81 @@ class ProjectDetailWidget(QWidget):
                     clipboard = QGuiApplication.clipboard()
                     clipboard.setText(prompt_text)
                     QToolTip.showText(QCursor.pos(), "已复制完整提示词！", self)
+                    self.change_row_color(target_row, copied=True)
+
+    def on_cell_double_clicked(self, row, column):
+        """Handle double-clicks on the table segments."""
+        if column == 3: # Double clicked on "秒数" (Duration) column
+            self.change_row_color(row, copied=False)
+            return
+            
+        if column == 4: # Double clicked on "生成的提示词" column
+            prompt_item = self.table_segments.item(row, 4)
+            if not prompt_item:
+                return
+                
+            prompt_text = prompt_item.text().strip()
+            if not prompt_text:
+                return
+                
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"完整提示词 (第 {row + 1} 句)")
+            dialog.resize(600, 400)
+            
+            layout = QVBoxLayout(dialog)
+            
+            text_edit = QTextEdit()
+            text_edit.setPlainText(prompt_text)
+            text_edit.setReadOnly(True)
+            layout.addWidget(text_edit)
+            
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
+            
+            btn_copy = QPushButton("📋 复制全部提示词")
+            btn_copy.clicked.connect(lambda: self.copy_text_to_clipboard(prompt_text, dialog, row))
+            btn_layout.addWidget(btn_copy)
+            
+            btn_close = QPushButton("关闭")
+            btn_close.clicked.connect(dialog.accept)
+            btn_layout.addWidget(btn_close)
+            
+            layout.addLayout(btn_layout)
+            
+            dialog.setStyleSheet(self.styleSheet())
+            dialog.exec()
+
+    def copy_text_to_clipboard(self, text, dialog, row):
+        """Utility method to copy text and show tooltip inside dialog context."""
+        clipboard = QGuiApplication.clipboard()
+        clipboard.setText(text)
+        QToolTip.showText(QCursor.pos(), "已复制完整提示词！", dialog)
+        self.change_row_color(row, copied=True)
+
+    def change_row_color(self, row, copied=True):
+        """Change the background color of a specific row to indicate status."""
+        from PyQt6.QtGui import QColor
+        if copied:
+            bg_color = QColor("#D4EDDA") # Light green
+            text_color = QColor("#155724") # Dark green
+            if hasattr(self, 'copied_rows'):
+                self.copied_rows.add(row)
+        else:
+            bg_color = QColor()
+            text_color = QColor()
+            if hasattr(self, 'copied_rows') and row in self.copied_rows:
+                self.copied_rows.discard(row)
+
+        for col in range(5):
+            item = self.table_segments.item(row, col)
+            if item:
+                if copied:
+                    item.setBackground(bg_color)
+                    item.setForeground(text_color)
+                else:
+                    item.setData(Qt.ItemDataRole.BackgroundRole, None)
+                    item.setData(Qt.ItemDataRole.ForegroundRole, None)
 
     def delete_selected_segment(self):
         """Deletes selected row in segments table."""
@@ -611,6 +663,15 @@ class ProjectDetailWidget(QWidget):
         rows_to_delete = sorted(list(set(rows_to_delete)), reverse=True)
         for r in rows_to_delete:
             self.table_segments.removeRow(r)
+            if hasattr(self, 'copied_rows'):
+                # Remove this index, and shift all indices greater than r down by 1
+                new_copied = set()
+                for idx in self.copied_rows:
+                    if idx < r:
+                        new_copied.add(idx)
+                    elif idx > r:
+                        new_copied.add(idx - 1)
+                self.copied_rows = new_copied
             
         # Recalculate IDs
         self.table_segments.blockSignals(True)

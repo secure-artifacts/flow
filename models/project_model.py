@@ -47,6 +47,12 @@ class ProjectModel:
                     self.prompt_template = data.get("prompt_template", self.prompt_template)
                     self.selected_template_id = data.get("selected_template_id", "")
                     self.selected_motion_id = data.get("selected_motion_id", "")
+                
+                # Proactively ensure subtitle file exists
+                subtitles_dir = self.project_dir.parent / "字幕"
+                subtitle_file_path = subtitles_dir / f"{self.project_id}.txt"
+                if not subtitle_file_path.exists() and self.spanish_segments:
+                    self.save_subtitle_file()
             except Exception as e:
                 print(f"Error loading project metadata: {e}")
 
@@ -69,10 +75,57 @@ class ProjectModel:
         try:
             with open(self.metadata_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
+            
+            # Save subtitle file
+            self.save_subtitle_file()
+            
             return True
         except Exception as e:
             print(f"Error saving project metadata: {e}")
             return False
+
+    def save_subtitle_file(self):
+        """Saves Spanish segments as a subtitle text file in the '字幕' directory under the base storage path."""
+        try:
+            subtitles_dir = self.project_dir.parent / "字幕"
+            subtitles_dir.mkdir(parents=True, exist_ok=True)
+            
+            subtitle_file_path = subtitles_dir / f"{self.project_id}.txt"
+            
+            lines = []
+            for seg in self.spanish_segments:
+                text = seg.get("text", "").strip()
+                if text:
+                    # Split this segment's text into short lines (max 28 characters)
+                    short_lines = self.split_text_into_short_lines(text, max_len=28)
+                    lines.extend(short_lines)
+                    
+            with open(subtitle_file_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+                
+            return True
+        except Exception as e:
+            print(f"Error saving subtitle file: {e}")
+            return False
+
+    def split_text_into_short_lines(self, text, max_len=28):
+        """Splits a string of text into lines of at most max_len characters, breaking at spaces."""
+        words = text.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            if not current_line:
+                current_line = word
+            else:
+                if len(current_line) + 1 + len(word) <= max_len:
+                    current_line += " " + word
+                else:
+                    lines.append(current_line)
+                    current_line = word
+        if current_line:
+            lines.append(current_line)
+        return lines
 
     def update_media_files(self):
         """Scans project_dir/downloads and updates associated_media."""

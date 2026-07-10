@@ -29,12 +29,11 @@ class TemplateManager:
             try:
                 with open(self.templates_path, "r", encoding="utf-8") as f:
                     self.templates = json.load(f)
-                # Upgrade logic: if user has <= 4 templates, upgrade them to the updated 4 default templates
-                if len(self.templates) <= 4:
+                if not self.templates:
                     self.init_default_templates()
             except Exception as e:
                 print(f"Error loading templates: {e}")
-                self.templates = []
+                self.init_default_templates()
         else:
             self.init_default_templates()
 
@@ -54,12 +53,11 @@ class TemplateManager:
             try:
                 with open(self.motions_path, "r", encoding="utf-8") as f:
                     self.motions = json.load(f)
-                # Upgrade logic: if user has <= 13 motions, upgrade them to the updated 15 motions
-                if len(self.motions) <= 13:
+                if not self.motions:
                     self.init_default_motions()
             except Exception as e:
                 print(f"Error loading motions: {e}")
-                self.motions = []
+                self.init_default_motions()
         else:
             self.init_default_motions()
 

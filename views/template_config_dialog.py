@@ -59,6 +59,13 @@ class TemplateConfigDialog(QDialog):
             QPushButton#btn_delete:hover {
                 background-color: #EF5350;
             }
+            QPushButton#btn_reset {
+                background-color: #B0BEC5;
+                color: #37474F;
+            }
+            QPushButton#btn_reset:hover {
+                background-color: #90A4AE;
+            }
             QListWidget {
                 background-color: white;
                 border: 1px solid #D7CCC8;
@@ -139,8 +146,13 @@ class TemplateConfigDialog(QDialog):
         self.btn_delete_tpl.setObjectName("btn_delete")
         self.btn_delete_tpl.clicked.connect(self.delete_template)
         
+        self.btn_reset_tpl = QPushButton("🔄 重置默认")
+        self.btn_reset_tpl.setObjectName("btn_reset")
+        self.btn_reset_tpl.clicked.connect(self.reset_templates)
+        
         btn_left_layout.addWidget(self.btn_new_tpl)
         btn_left_layout.addWidget(self.btn_delete_tpl)
+        btn_left_layout.addWidget(self.btn_reset_tpl)
         left_layout.addLayout(btn_left_layout)
         
         left_widget.setLayout(left_layout)
@@ -197,8 +209,13 @@ class TemplateConfigDialog(QDialog):
         self.btn_delete_motion.setObjectName("btn_delete")
         self.btn_delete_motion.clicked.connect(self.delete_motion)
         
+        self.btn_reset_motion = QPushButton("🔄 重置默认")
+        self.btn_reset_motion.setObjectName("btn_reset")
+        self.btn_reset_motion.clicked.connect(self.reset_motions)
+        
         btn_left_layout.addWidget(self.btn_new_motion)
         btn_left_layout.addWidget(self.btn_delete_motion)
+        btn_left_layout.addWidget(self.btn_reset_motion)
         left_layout.addLayout(btn_left_layout)
         
         left_widget.setLayout(left_layout)
@@ -402,3 +419,29 @@ class TemplateConfigDialog(QDialog):
             QMessageBox.information(self, "成功", "运镜预设保存成功！")
         else:
             QMessageBox.critical(self, "错误", "运镜保存失败。")
+
+    def reset_templates(self):
+        """Resets all prompt templates to defaults after confirmation."""
+        reply = QMessageBox.question(
+            self, "确认重置",
+            "确定要将所有提示词模板重置为默认值吗？这将会覆盖您当前所有的模板修改并删除自定义模板！",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.tm.init_default_templates()
+            self.load_data()
+            QMessageBox.information(self, "重置成功", "已恢复默认提示词模板！")
+
+    def reset_motions(self):
+        """Resets all camera motions to defaults after confirmation."""
+        reply = QMessageBox.question(
+            self, "确认重置",
+            "确定要将所有运镜预设重置为默认值吗？这将会覆盖您当前所有的预设修改并删除自定义预设！",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.tm.init_default_motions()
+            self.load_data()
+            QMessageBox.information(self, "重置成功", "已恢复默认运镜预设！")

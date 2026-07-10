@@ -323,6 +323,12 @@ class MainWindow(QMainWindow):
                 if project_path.exists() and project_path.is_dir():
                     shutil.rmtree(project_path)
                 
+                # Delete corresponding subtitle file in "字幕" folder
+                subtitles_dir = project_path.parent / "字幕"
+                subtitle_file_path = subtitles_dir / f"{project_id}.txt"
+                if subtitle_file_path.exists():
+                    subtitle_file_path.unlink()
+                
                 # 3. If the deleted project is currently displayed, reset the detail view
                 if self.detail_widget.project_model and self.detail_widget.project_model.project_id == project_id:
                     self.detail_widget.reset_to_no_selection()
