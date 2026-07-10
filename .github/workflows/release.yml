@@ -1,0 +1,42 @@
+name: Release Application
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  id-token: write
+  contents: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare build directory
+        run: |
+          mkdir -p dist/flow
+          cp -r main.py models views services requirements.txt LICENSE LICENSE.LIST camera_motions.json prompt_templates.json dist/flow/
+          cd dist
+          zip -r flow-${{ github.ref_name }}.zip flow
+          rm -rf flow
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/*'
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
