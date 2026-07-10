@@ -45,7 +45,7 @@ jobs:
           cp LICENSE.LIST dist/flow_windows/
           cd dist
           Compress-Archive -Path flow_windows/* -DestinationPath flow-windows-${{ github.ref_name }}.zip
-                    Remove-Item -Recurse -Force flow_windows
+          Remove-Item -Recurse -Force flow_windows
 
       - name: Build executable (macOS)
         if: matrix.os == 'macos-latest'
