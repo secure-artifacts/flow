@@ -8,8 +8,16 @@ def main():
     # Create the application
     app = QApplication(sys.argv)
     
-    # Identify the current folder as workspace
-    workspace_dir = os.path.dirname(os.path.abspath(__file__))
+    # Identify the current folder as workspace (handles PyInstaller packaging)
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        # On macOS, PyInstaller bundles the app inside Contents/MacOS/
+        if exe_dir.endswith("Contents/MacOS"):
+            workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(exe_dir)))
+        else:
+            workspace_dir = exe_dir
+    else:
+        workspace_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Create and show main window
     window = MainWindow(workspace_dir)

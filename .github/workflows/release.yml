@@ -1,4 +1,4 @@
-name: Release Application
+name: Build and Release Application
 
 on:
   push:
@@ -11,8 +11,13 @@ permissions:
   attestations: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,21 +27,44 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Prepare build directory
+      - name: Install dependencies
         run: |
-          mkdir -p dist/flow
-          cp -r main.py models views services requirements.txt LICENSE LICENSE.LIST camera_motions.json prompt_templates.json dist/flow/
+          python -m pip install --upgrade pip
+          pip install pyinstaller PyQt6 pillow requests gdown beautifulsoup4
+
+      - name: Build executable (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          pyinstaller --name=flow --windowed --onefile main.py
+          mkdir dist/flow_windows
+          cp dist/flow.exe dist/flow_windows/
+          cp camera_motions.json dist/flow_windows/
+          cp prompt_templates.json dist/flow_windows/
+          cp LICENSE dist/flow_windows/
+          cp LICENSE.LIST dist/flow_windows/
           cd dist
-          zip -r flow-${{ github.ref_name }}.zip flow
-          rm -rf flow
+          Compress-Archive -Path flow_windows/* -DestinationPath flow-windows-${{ github.ref_name }}.zip
+          rm -rf flow_windows
+
+      - name: Build executable (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          pyinstaller --name=flow --windowed main.py
+          cp camera_motions.json dist/
+          cp prompt_templates.json dist/
+          cp LICENSE dist/
+          cp LICENSE.LIST dist/
+          cd dist
+          zip -r flow-macos-${{ github.ref_name }}.zip flow.app camera_motions.json prompt_templates.json LICENSE LICENSE.LIST
 
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: 'dist/*'
+          subject-path: 'dist/*.zip'
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: dist/*.zip
           generate_release_notes: true
