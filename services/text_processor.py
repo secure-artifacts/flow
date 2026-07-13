@@ -135,7 +135,9 @@ class TextProcessor:
         results = []
         for seg in segments:
             length = len(seg)
-            if length <= 100:
+            if length <= 50:
+                duration_val = 4
+            elif length <= 100:
                 duration_val = 6
             elif length <= 140:
                 duration_val = 8
