@@ -6,6 +6,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QGuiApplication
 from bs4 import BeautifulSoup
 import re
+import csv
+import io
 
 class ImportDialog(QDialog):
     """Dialog for importing project rows from clipboard."""
@@ -147,7 +149,8 @@ class ImportDialog(QDialog):
                 
             row_data = []
             for td in td_tags:
-                text = td.get_text().strip()
+                # Use newline as separator to preserve Excel line breaks and prevent word sticking
+                text = td.get_text(separator='\n').strip()
                 
                 # Extract all <a> href links
                 links = []
@@ -178,13 +181,11 @@ class ImportDialog(QDialog):
 
     def parse_tsv_text(self, text_content):
         """Parses tab-separated text (TSV) from clipboard and extracts links."""
-        lines = text_content.strip().split('\n')
         rows = []
-        
-        for line in lines:
-            if not line.strip():
+        reader = csv.reader(io.StringIO(text_content.strip()), delimiter='\t')
+        for cols in reader:
+            if not cols:
                 continue
-            cols = line.split('\t')
             num_cols = len(cols)
             if num_cols >= 7:
                 take_cols = 8 if num_cols >= 8 else 7

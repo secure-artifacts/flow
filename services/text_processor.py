@@ -32,7 +32,14 @@ class TextProcessor:
         # 3. Remove quotes (double quotes, smart quotes)
         text = text.replace('"', '').replace('“', '').replace('”', '')
         
-        # 4. Clean up spacing
+        # 4. Replace colons and parentheses (both English and Chinese) with a space
+        for char in (':', '：', '(', ')', '（', '）'):
+            text = text.replace(char, ' ')
+            
+        # 5. Remove spaces before punctuation (e.g. "13 ." -> "13.")
+        text = re.sub(r' +([.,?!;])', r'\1', text)
+            
+        # 6. Clean up spacing
         text = re.sub(r' +', ' ', text)
         
         return text.strip()
