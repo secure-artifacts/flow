@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QListWidgetItem, QSplitter, QFileDialog, QMessageBox,
                              QInputDialog, QMenu, QToolTip, QDialog, QSpinBox)
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QGuiApplication, QCursor
+from PyQt6.QtGui import QGuiApplication, QCursor, QColor
 from models.storage_manager import StorageManager
 from views.import_dialog import ImportDialog
 from views.project_detail_widget import ProjectDetailWidget
@@ -249,6 +249,14 @@ class MainWindow(QMainWindow):
         self.btn_rules_config.clicked.connect(self.open_settings_dialog)
         top_layout.addWidget(self.btn_rules_config)
         
+        top_layout.addSpacing(8)
+        
+        self.btn_batch_check_video = QPushButton("🔍 批量检查视频")
+        self.btn_batch_check_video.setObjectName("btn_batch_check_video")
+        self.btn_batch_check_video.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        self.btn_batch_check_video.clicked.connect(self.open_batch_video_check_dialog)
+        top_layout.addWidget(self.btn_batch_check_video)
+        
         main_layout.addLayout(top_layout)
         
         # 2. Main Area (Splitter: Sidebar and Details)
@@ -319,10 +327,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "错误", "无法使用该存储路径，请检查权限。")
 
     def reload_projects_list(self):
-        """Fetches current projects and populates sidebar list widget."""
+        """Fetches current projects and populates sidebar list widget with video completeness status colors."""
         self.list_projects.clear()
         
         projects = self.storage_manager.list_projects()
+        base_path = self.storage_manager.get_base_path()
+        from models.project_model import ProjectModel
+        from services.video_checker import VideoChecker
+        
         for p in projects:
             # Format list item label: {index} {col1} - {col7}
             label = f"●  {p['index_str']}   {p['col1']}"
@@ -330,8 +342,36 @@ class MainWindow(QMainWindow):
                 label += f" - {p['col7']}"
                 
             item = QListWidgetItem(label)
-            # Store the absolute path in UserRole for easy lookup
             item.setData(Qt.ItemDataRole.UserRole, p['path'])
+            
+            try:
+                proj_model = ProjectModel(p['path'])
+                report = VideoChecker.check_project_videos(proj_model, p['path'], base_storage_path=base_path)
+                
+                missing = report.get("missing_count", 0)
+                pending = report.get("pending_count", 0)
+                already = report.get("already_count", 0)
+                rate = report.get("completion_rate", 0.0)
+                
+                # 规则：
+                # 1. 缺少视频就显示红色
+                # 2. 成功归位并且没有缺少视频就显示黄色
+                # 3. 没有归位就显示默认颜色
+                if missing > 0:
+                    item.setForeground(QColor("#DC2626"))  # 红色
+                    item.setToolTip(f"❌ 缺失 {missing} 个视频片段")
+                elif rate >= 100.0 and pending == 0 and already > 0:
+                    item.setForeground(QColor("#D97706"))  # 黄色
+                    item.setToolTip("✅ 视频已全部归位且无缺失")
+                elif pending > 0:
+                    item.setForeground(QColor("#5D4037"))  # 默认褐色
+                    item.setToolTip(f"⚠️ 包含 {pending} 个未归位视频")
+                else:
+                    item.setForeground(QColor("#5D4037"))  # 默认褐色
+            except Exception as e:
+                print(f"Error checking project status for item {p['id']}: {e}")
+                item.setForeground(QColor("#5D4037"))
+                
             self.list_projects.addItem(item)
 
     def open_import_dialog(self):
@@ -580,3 +620,22 @@ class MainWindow(QMainWindow):
             # Refresh project details dropdowns if a project is loaded
             if self.detail_widget.project_model:
                 self.detail_widget.refresh_template_comboboxes()
+
+    def open_settings_dialog(self):
+        """Opens the global rule settings dialog."""
+        from views.settings_dialog import SettingsDialog
+        dialog = SettingsDialog(self.config_manager, self)
+        dialog.exec()
+
+    def open_batch_video_check_dialog(self):
+        """Opens batch video completeness dialog for all projects in storage_manager."""
+        projects = self.storage_manager.list_projects()
+        if not projects:
+            QMessageBox.warning(self, "提示", "当前存储路径下没有找到任何项目！")
+            return
+            
+        base_storage_path = self.storage_manager.get_base_path()
+        from views.video_check_dialog import BatchVideoCheckDialog
+        dialog = BatchVideoCheckDialog(projects, base_storage_path, self)
+        dialog.exec()
+

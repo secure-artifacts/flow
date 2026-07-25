@@ -158,6 +158,7 @@ class ProjectDetailWidget(QWidget):
         self.tabs = QTabWidget()
         self.init_text_tab()
         self.init_media_tab()
+        self.init_compare_tab()
         self.content_layout.addWidget(self.tabs)
         
         self.layout_stack.addWidget(self.content_widget)
@@ -340,19 +341,9 @@ class ProjectDetailWidget(QWidget):
         self.btn_import_report.clicked.connect(self.import_execution_report)
         table_buttons_layout.addWidget(self.btn_import_report)
         
-        self.btn_check_video = QPushButton("🔍 检查视频完整性")
-        self.btn_check_video.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
-        self.btn_check_video.clicked.connect(self.check_video_completeness)
-        table_buttons_layout.addWidget(self.btn_check_video)
-        
         self.btn_save_project = QPushButton("💾 保存修改")
         self.btn_save_project.clicked.connect(self.save_project_data)
         table_buttons_layout.addWidget(self.btn_save_project)
-        
-        self.btn_settings = QPushButton("⚙️ 规则与积分设置")
-        self.btn_settings.setStyleSheet("background-color: #64748B; color: white; font-weight: bold;")
-        self.btn_settings.clicked.connect(self.open_settings_dialog)
-        table_buttons_layout.addWidget(self.btn_settings)
         
         right_layout.addLayout(table_buttons_layout)
         right_widget.setLayout(right_layout)
@@ -444,6 +435,15 @@ class ProjectDetailWidget(QWidget):
         self.project_model = None
         self.content_widget.setVisible(False)
         self.no_selection_widget.setVisible(True)
+        # Also clear the compare widget
+        if hasattr(self, 'video_compare_widget'):
+            self.video_compare_widget.set_project(None, None)
+
+    def init_compare_tab(self):
+        """Initializes the video vs script comparison tab (Tab 3)."""
+        from views.video_compare_widget import VideoCompareWidget
+        self.video_compare_widget = VideoCompareWidget()
+        self.tabs.addTab(self.video_compare_widget, "🎬 视频与文案比对")
 
     def set_project(self, project_path):
         """Loads and binds project data."""
@@ -478,6 +478,10 @@ class ProjectDetailWidget(QWidget):
         else:
             self.lbl_download_status.setText("下载状态: 未开始")
             self.btn_download.setEnabled(True)
+        
+        # Refresh the video compare tab
+        if hasattr(self, 'video_compare_widget'):
+            self.video_compare_widget.set_project(self.project_model, self.project_path, self.config_manager)
 
     def populate_segments_table(self):
         """Fills QTableWidget with stored Spanish segments and generated prompts."""
@@ -1603,8 +1607,15 @@ class ProjectDetailWidget(QWidget):
         from services.video_checker import VideoChecker
         from views.video_check_dialog import VideoCheckDialog
         
-        report = VideoChecker.check_project_videos(self.project_model, self.project_path)
-        dialog = VideoCheckDialog(report, self.project_model, self.project_path, self)
+        base_storage_path = None
+        main_win = self.window()
+        if hasattr(main_win, "storage_manager") and main_win.storage_manager:
+            base_storage_path = main_win.storage_manager.get_base_path()
+        if not base_storage_path and self.project_path:
+            base_storage_path = Path(self.project_path).parent
+            
+        report = VideoChecker.check_project_videos(self.project_model, self.project_path, base_storage_path=base_storage_path)
+        dialog = VideoCheckDialog(report, self.project_model, self.project_path, base_storage_path=base_storage_path, parent=self)
         dialog.exec()
 
     def import_execution_report(self):
@@ -1701,6 +1712,9 @@ class ProjectDetailWidget(QWidget):
         
         if self.project_model:
             self.project_model.update_media_files()
+            main_win = self.window()
+            if hasattr(main_win, "reload_projects_list"):
+                main_win.reload_projects_list()
             
         msg = f"已成功移入并归档 {success_count} 个视频文件！\n"
         if fail_count > 0:

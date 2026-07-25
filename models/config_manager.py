@@ -23,6 +23,21 @@ class ConfigManager:
     
     DEFAULT_FORCED_SPLIT_MARKER = "///"
     
+    # Speech extraction defaults
+    DEFAULT_SPEECH_LANGUAGE = "es"  # Default: Spanish
+    SUPPORTED_LANGUAGES = [
+        ("es", "西班牙语 (Spanish)"),
+        ("en", "英语 (English)"),
+        ("zh", "中文 (Chinese)"),
+        ("pt", "葡萄牙语 (Portuguese)"),
+        ("fr", "法语 (French)"),
+        ("de", "德语 (German)"),
+        ("it", "意大利语 (Italian)"),
+        ("ja", "日语 (Japanese)"),
+        ("ko", "韩语 (Korean)"),
+        ("ar", "阿拉伯语 (Arabic)"),
+    ]
+    
     def __init__(self, workspace_dir):
         self.workspace_dir = Path(workspace_dir)
         self.config_path = self.workspace_dir / self.CONFIG_FILE_NAME
@@ -32,6 +47,13 @@ class ConfigManager:
         self.forced_split_marker = self.DEFAULT_FORCED_SPLIT_MARKER
         self.char_duration_rules = [dict(r) for r in self.DEFAULT_CHAR_DURATION_RULES]
         self.duration_points_rules = [dict(r) for r in self.DEFAULT_DURATION_POINTS_RULES]
+        
+        # Speech extraction settings
+        self.gladia_api_keys = []      # List of Gladia API keys for round-robin
+        self.elevenlabs_api_keys = []   # List of ElevenLabs API keys for round-robin
+        self.speech_language = self.DEFAULT_SPEECH_LANGUAGE
+        self._gladia_key_index = 0     # Current rotation index
+        self._elevenlabs_key_index = 0 # Current rotation index
         
         self.load()
 
@@ -56,6 +78,11 @@ class ConfigManager:
                         self.duration_points_rules = dur_rules
                     else:
                         self.duration_points_rules = [dict(r) for r in self.DEFAULT_DURATION_POINTS_RULES]
+                    
+                    # Load speech extraction settings
+                    self.gladia_api_keys = data.get("gladia_api_keys", [])
+                    self.elevenlabs_api_keys = data.get("elevenlabs_api_keys", [])
+                    self.speech_language = data.get("speech_language", self.DEFAULT_SPEECH_LANGUAGE)
             except Exception as e:
                 print(f"Error loading config: {e}")
 
@@ -66,7 +93,10 @@ class ConfigManager:
             "max_batch_points": self.max_batch_points,
             "forced_split_marker": self.forced_split_marker,
             "char_duration_rules": self.char_duration_rules,
-            "duration_points_rules": self.duration_points_rules
+            "duration_points_rules": self.duration_points_rules,
+            "gladia_api_keys": self.gladia_api_keys,
+            "elevenlabs_api_keys": self.elevenlabs_api_keys,
+            "speech_language": self.speech_language
         }
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -115,3 +145,26 @@ class ConfigManager:
             if r["duration"] == duration:
                 return r["points"]
         return 7
+
+    def get_next_gladia_key(self):
+        """Returns the next Gladia API key using round-robin rotation.
+        Returns None if no keys are configured."""
+        if not self.gladia_api_keys:
+            return None
+        key = self.gladia_api_keys[self._gladia_key_index % len(self.gladia_api_keys)]
+        self._gladia_key_index += 1
+        return key
+
+    def get_next_elevenlabs_key(self):
+        """Returns the next ElevenLabs API key using round-robin rotation.
+        Returns None if no keys are configured."""
+        if not self.elevenlabs_api_keys:
+            return None
+        key = self.elevenlabs_api_keys[self._elevenlabs_key_index % len(self.elevenlabs_api_keys)]
+        self._elevenlabs_key_index += 1
+        return key
+
+    def reset_key_rotation(self):
+        """Resets the round-robin key rotation indices to 0."""
+        self._gladia_key_index = 0
+        self._elevenlabs_key_index = 0

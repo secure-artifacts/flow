@@ -74,18 +74,25 @@ class VideoChecker:
         return matched
 
     @staticmethod
-    def check_project_videos(project_model, project_path, custom_search_dir=None):
-        """Scans disk for generated video files STRICTLY scoped to the target project directory/name.
-        Will NOT pick up random videos from other projects.
+    def check_project_videos(project_model, project_path, base_storage_path=None, custom_search_dir=None):
+        """Scans disk for generated video files STRICTLY scoped to:
+        1. Post-relocation path (Project internal): {project_path}/downloads/videos/
+        2. Pre-relocation path (Base download): {base_storage_path}/Flow/{project_id}/ (or custom_search_dir)
         """
         if not project_model or not project_model.spanish_segments:
             return {
+                "project_id": getattr(project_model, "project_id", Path(project_path).name),
+                "project_name": getattr(project_model, "col1_name", Path(project_path).name),
+                "project_path": str(project_path),
                 "total_segments": 0,
                 "found_count": 0,
+                "already_count": 0,
+                "pending_count": 0,
                 "missing_count": 0,
                 "completion_rate": 0.0,
                 "segments_detail": [],
-                "primary_search_dir": ""
+                "post_relocate_dir": str(Path(project_path) / "downloads" / "videos"),
+                "pre_relocate_dir": ""
             }
 
         segments = project_model.spanish_segments
@@ -93,73 +100,96 @@ class VideoChecker:
         project_id = project_model.project_id
         index = getattr(project_model, "index", 1)
         col1_name = getattr(project_model, "col1_name", "")
+        project_path_obj = Path(project_path)
         
-        # 1. Target videos directory inside project folder
-        target_videos_dir = Path(project_path) / "downloads" / "videos"
-        target_videos_dir.mkdir(parents=True, exist_ok=True)
+        # 1. Post-relocation directory inside project folder
+        post_relocate_dir = project_path_obj / "downloads" / "videos"
+        post_relocate_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2. Base search bases
-        chrome_downloads = Path.home() / "Downloads"
-        default_flow_dir = chrome_downloads / "Flow"
+        # 2. Pre-relocation directory (Flow download folder under base_storage_path)
+        pre_relocate_search_dirs = []
         
-        base_search_dirs = []
         if custom_search_dir:
             cd = Path(custom_search_dir)
             if cd.exists():
-                base_search_dirs.append(cd)
-        if default_flow_dir.exists():
-            base_search_dirs.append(default_flow_dir)
-        if chrome_downloads.exists():
-            base_search_dirs.append(chrome_downloads)
-
-        # 3. Locate SPECIFIC project folders matching project_id / index + col1_name
-        project_scoped_dirs = [target_videos_dir]
-        for b_dir in base_search_dirs:
-            # If b_dir is already the project folder itself (e.g. user selected Downloads/Flow/02_衣服-flow)
-            b_name = b_dir.name.lower()
-            if b_name == project_id.lower() or (b_name.startswith(f"{index:02d}_") and (not col1_name or col1_name.lower() in b_name)):
-                if b_dir.resolve() not in [p.resolve() for p in project_scoped_dirs]:
-                    project_scoped_dirs.append(b_dir)
+                pre_relocate_search_dirs.append(cd)
+        else:
+            # Determine base storage path if not explicitly provided
+            if not base_storage_path:
+                base_storage_path = project_path_obj.parent
             else:
-                # Find matching project subfolders inside b_dir
-                matched_subfolders = VideoChecker.find_project_folders(b_dir, project_id, index, col1_name)
+                base_storage_path = Path(base_storage_path)
+                
+            flow_base = base_storage_path / "Flow"
+            if flow_base.exists() and flow_base.is_dir():
+                # Locate specific project folders inside base_storage_path/Flow/
+                matched_subfolders = VideoChecker.find_project_folders(flow_base, project_id, index, col1_name)
                 for sf in matched_subfolders:
-                    if sf.resolve() not in [p.resolve() for p in project_scoped_dirs]:
-                        project_scoped_dirs.append(sf)
+                    pre_relocate_search_dirs.append(sf)
+                
+                # Also check direct folder Flow/project_id if not caught above
+                direct_proj_flow = flow_base / project_id
+                if direct_proj_flow.exists() and direct_proj_flow.is_dir():
+                    if direct_proj_flow.resolve() not in [p.resolve() for p in pre_relocate_search_dirs]:
+                        pre_relocate_search_dirs.append(direct_proj_flow)
+                        
+                # Also include Flow root directory as search dir if no subfolder found
+                if not pre_relocate_search_dirs:
+                    pre_relocate_search_dirs.append(flow_base)
 
-        # 4. Match segment files STRICTLY inside project_scoped_dirs
+        pre_relocate_display_str = str(pre_relocate_search_dirs[0]) if pre_relocate_search_dirs else str(Path(base_storage_path or project_path_obj.parent) / "Flow" / project_id)
+
+        # 3. Match segment files STRICTLY inside Post-relocation vs Pre-relocation
         segments_detail = []
-        found_count = 0
+        already_count = 0
+        pending_count = 0
+        missing_count = 0
 
         for idx, seg in enumerate(segments):
             seq_num = idx + 1
             idx_str = f"{seq_num:02d}"
             text = seg.get("text", "")
             download_name = f"{idx_str}.mp4"
-            target_path = target_videos_dir / download_name
+            target_path = post_relocate_dir / download_name
 
             found_file = None
-            
-            # A. Check if target_path already exists inside project
+            is_already_in_target = False
+
+            # A. Check Post-relocation directory ({project_path}/downloads/videos/)
             if target_path.exists() and target_path.is_file():
                 found_file = target_path
+                is_already_in_target = True
             else:
-                # B. Search strictly inside this project's scoped directories
-                for p_dir in project_scoped_dirs:
+                # Scan files in post_relocate_dir for matching filename (e.g. 01.mp4, 01_foo.mp4)
+                if post_relocate_dir.exists():
+                    try:
+                        for entry in post_relocate_dir.iterdir():
+                            if entry.is_file() and VideoChecker.is_matching_video_file(entry.name, seq_num):
+                                found_file = entry
+                                is_already_in_target = True
+                                break
+                    except Exception:
+                        pass
+
+            # B. If not in Post-relocation directory, check Pre-relocation directories
+            if not found_file:
+                for p_dir in pre_relocate_search_dirs:
                     if not p_dir.exists() or not p_dir.is_dir():
                         continue
-                        
-                    # Check exact 01.mp4 in this project's folder
+                    
+                    # Direct check 01.mp4
                     direct_file = p_dir / download_name
                     if direct_file.exists() and direct_file.is_file():
                         found_file = direct_file
+                        is_already_in_target = False
                         break
-                        
-                    # Scan files inside this project's folder
+
+                    # Scan files inside Pre-relocation directory
                     try:
                         for entry in p_dir.iterdir():
                             if entry.is_file() and VideoChecker.is_matching_video_file(entry.name, seq_num):
                                 found_file = entry
+                                is_already_in_target = False
                                 break
                     except Exception:
                         pass
@@ -167,69 +197,97 @@ class VideoChecker:
                     if found_file:
                         break
 
-                # C. If not in project folder, check flat files in base_search_dirs ONLY IF filename starts with project_id or index+col1
-                if not found_file:
-                    idx_prefix = f"{index:02d}_"
-                    for b_dir in base_search_dirs:
-                        if not b_dir.exists() or not b_dir.is_dir():
-                            continue
-                        try:
-                            for entry in b_dir.iterdir():
-                                if entry.is_file():
-                                    fname_lower = entry.name.lower()
-                                    # Ensure flat file explicitly starts with project_id or index prefix
-                                    if fname_lower.startswith(project_id.lower()) or entry.name.startswith(idx_prefix):
-                                        if VideoChecker.is_matching_video_file(entry.name, seq_num):
-                                            found_file = entry
-                                            break
-                        except Exception:
-                            pass
-                        if found_file:
-                            break
-
+            # C. Record segment report
             if found_file:
-                found_count += 1
                 file_size = VideoChecker.get_file_size_str(found_file)
+                if is_already_in_target:
+                    already_count += 1
+                    status_text = "✅ 已归位"
+                else:
+                    pending_count += 1
+                    status_text = "⚠️ 待归位"
+
                 segments_detail.append({
                     "index": seq_num,
                     "text": text,
                     "download_name": download_name,
                     "found": True,
+                    "already_in_target": is_already_in_target,
+                    "status_text": status_text,
                     "source_path": found_file,
                     "target_path": target_path,
-                    "already_in_target": (found_file.resolve() == target_path.resolve()),
                     "file_size": file_size
                 })
             else:
+                missing_count += 1
                 segments_detail.append({
                     "index": seq_num,
                     "text": text,
                     "download_name": download_name,
                     "found": False,
+                    "already_in_target": False,
+                    "status_text": "❌ 缺失",
                     "source_path": None,
                     "target_path": target_path,
-                    "already_in_target": False,
                     "file_size": "-"
                 })
 
-        missing_count = total_segments - found_count
+        found_count = already_count + pending_count
         completion_rate = (found_count / total_segments * 100.0) if total_segments > 0 else 0.0
 
-        primary_dir_str = str(project_scoped_dirs[1]) if len(project_scoped_dirs) > 1 else str(target_videos_dir)
-
         return {
+            "project_id": project_id,
+            "project_name": col1_name or project_id,
+            "project_path": str(project_path),
             "total_segments": total_segments,
             "found_count": found_count,
+            "already_count": already_count,
+            "pending_count": pending_count,
             "missing_count": missing_count,
             "completion_rate": completion_rate,
             "segments_detail": segments_detail,
-            "target_videos_dir": str(target_videos_dir),
-            "primary_search_dir": primary_dir_str
+            "post_relocate_dir": str(post_relocate_dir),
+            "pre_relocate_dir": pre_relocate_display_str
+        }
+
+    @staticmethod
+    def check_all_projects(projects_list, base_storage_path):
+        """Scans ALL projects in projects_list and generates a consolidated batch report."""
+        from models.project_model import ProjectModel
+
+        projects_reports = []
+        total_projects = len(projects_list)
+        fully_complete_count = 0
+        pending_count_total = 0
+        missing_count_total = 0
+
+        for proj in projects_list:
+            proj_path = proj.get("path")
+            if not proj_path or not Path(proj_path).exists():
+                continue
+                
+            proj_model = ProjectModel(proj_path)
+            report = VideoChecker.check_project_videos(proj_model, proj_path, base_storage_path=base_storage_path)
+            projects_reports.append(report)
+
+            if report["completion_rate"] >= 100.0 and report["pending_count"] == 0:
+                fully_complete_count += 1
+            
+            pending_count_total += report["pending_count"]
+            missing_count_total += report["missing_count"]
+
+        return {
+            "total_projects": total_projects,
+            "fully_complete_count": fully_complete_count,
+            "pending_count_total": pending_count_total,
+            "missing_count_total": missing_count_total,
+            "projects_reports": projects_reports,
+            "base_storage_path": str(base_storage_path) if base_storage_path else ""
         }
 
     @staticmethod
     def relocate_found_videos(report):
-        """Relocates (moves) all found videos from external directories (e.g. Downloads/Flow/01_project-flow)
+        """Relocates (moves) all pending videos from pre-relocation directory (e.g. BaseDir/Flow/01_project-flow)
         into the project's target videos folder.
         """
         details = report.get("segments_detail", [])
@@ -244,7 +302,7 @@ class VideoChecker:
             src = Path(item["source_path"])
             dst = Path(item["target_path"])
 
-            if src.resolve() == dst.resolve():
+            if src.resolve() == dst.resolve() or item.get("already_in_target"):
                 already_count += 1
                 continue
 
@@ -253,12 +311,48 @@ class VideoChecker:
                 shutil.move(str(src), str(dst))
                 item["source_path"] = dst
                 item["already_in_target"] = True
+                item["status_text"] = "✅ 已归位"
                 moved_count += 1
             except Exception as e:
                 error_msgs.append(f"移动 {src.name} 失败: {e}")
+
+        # Update summary counters in report
+        if moved_count > 0:
+            report["already_count"] = report.get("already_count", 0) + moved_count
+            report["pending_count"] = max(0, report.get("pending_count", 0) - moved_count)
 
         return {
             "moved_count": moved_count,
             "already_count": already_count,
             "errors": error_msgs
+        }
+
+    @staticmethod
+    def relocate_batch_videos(batch_report):
+        """Relocates pending videos for ALL projects in batch_report."""
+        total_moved = 0
+        total_already = 0
+        all_errors = []
+
+        for proj_report in batch_report.get("projects_reports", []):
+            if proj_report.get("pending_count", 0) > 0:
+                res = VideoChecker.relocate_found_videos(proj_report)
+                total_moved += res["moved_count"]
+                total_already += res["already_count"]
+                all_errors.extend(res["errors"])
+
+        # Update batch summary
+        if total_moved > 0:
+            batch_report["pending_count_total"] = max(0, batch_report.get("pending_count_total", 0) - total_moved)
+            # Re-evaluate fully complete count
+            fc_count = 0
+            for r in batch_report.get("projects_reports", []):
+                if r["completion_rate"] >= 100.0 and r["pending_count"] == 0:
+                    fc_count += 1
+            batch_report["fully_complete_count"] = fc_count
+
+        return {
+            "moved_count": total_moved,
+            "already_count": total_already,
+            "errors": all_errors
         }

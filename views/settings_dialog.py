@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QSpinBox, QTableWidget, QTableWidgetItem, 
-                             QHeaderView, QMessageBox, QGroupBox, QAbstractItemView)
+                             QHeaderView, QMessageBox, QGroupBox, QAbstractItemView, 
+                             QLineEdit, QComboBox, QTextEdit, QScrollArea, QWidget)
 from PyQt6.QtCore import Qt
 
 class SettingsDialog(QDialog):
@@ -15,7 +16,7 @@ class SettingsDialog(QDialog):
 
     def init_ui(self):
         self.setWindowTitle("⚙️ 系统规则与积分设置 (Rules & Points Settings)")
-        self.resize(650, 600)
+        self.resize(680, 750)
         
         self.setStyleSheet("""
             QDialog {
@@ -86,7 +87,12 @@ class SettingsDialog(QDialog):
             }
         """)
         
-        main_layout = QVBoxLayout(self)
+        # Use a scroll area so the dialog doesn't overflow on small screens
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { border: none; background-color: #FAF6F0; }")
+        scroll_content = QWidget()
+        main_layout = QVBoxLayout(scroll_content)
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(12)
         
@@ -163,6 +169,68 @@ class SettingsDialog(QDialog):
         
         main_layout.addWidget(group_dur_pts)
         
+        # Section 4: Speech Extraction API Keys & Language
+        group_api = QGroupBox("4. 语音提取 API 密钥与语言设置 (Speech API Keys & Language)")
+        api_layout = QVBoxLayout(group_api)
+        api_layout.setContentsMargins(12, 12, 12, 12)
+        api_layout.setSpacing(8)
+        
+        # Language selector
+        lang_layout = QHBoxLayout()
+        lang_layout.addWidget(QLabel("🌐 识别语言:"))
+        self.combo_language = QComboBox()
+        from models.config_manager import ConfigManager
+        for code, label in ConfigManager.SUPPORTED_LANGUAGES:
+            self.combo_language.addItem(label, code)
+        lang_layout.addWidget(self.combo_language, stretch=1)
+        
+        lbl_lang_hint = QLabel("(* 用于语音转文字时指定目标语言)")
+        lbl_lang_hint.setStyleSheet("color: #8D6E63; font-style: italic; font-size: 11px;")
+        lang_layout.addWidget(lbl_lang_hint)
+        api_layout.addLayout(lang_layout)
+        
+        # Gladia API Keys
+        api_layout.addWidget(QLabel("🔑 Gladia API Keys (每行一个，自动轮询):"))
+        self.txt_gladia_keys = QTextEdit()
+        self.txt_gladia_keys.setMaximumHeight(72)
+        self.txt_gladia_keys.setPlaceholderText("粘贴 Gladia API Key，每行一个...\n例: gla_xxxxxxxxxxxxxxxxxxxx\ngla_yyyyyyyyyyyyyyyyyyyy")
+        self.txt_gladia_keys.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                font-family: Consolas, monospace;
+                font-size: 12px;
+                color: #5D4037;
+                padding: 4px;
+            }
+        """)
+        api_layout.addWidget(self.txt_gladia_keys)
+        
+        # ElevenLabs API Keys
+        api_layout.addWidget(QLabel("🔑 ElevenLabs API Keys (每行一个，自动轮询):"))
+        self.txt_elevenlabs_keys = QTextEdit()
+        self.txt_elevenlabs_keys.setMaximumHeight(72)
+        self.txt_elevenlabs_keys.setPlaceholderText("粘贴 ElevenLabs API Key，每行一个...\n例: sk_xxxxxxxxxxxxxxxxxxxx\nsk_yyyyyyyyyyyyyyyyyyyy")
+        self.txt_elevenlabs_keys.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                font-family: Consolas, monospace;
+                font-size: 12px;
+                color: #5D4037;
+                padding: 4px;
+            }
+        """)
+        api_layout.addWidget(self.txt_elevenlabs_keys)
+        
+        lbl_api_hint = QLabel("💡 提示: 支持多个 Key 轮询，当一个 Key 用量超限时自动切换下一个")
+        lbl_api_hint.setStyleSheet("color: #0284C7; font-style: italic; font-size: 11px; font-weight: normal;")
+        api_layout.addWidget(lbl_api_hint)
+        
+        main_layout.addWidget(group_api)
+        
         # Bottom Buttons
         bottom_layout = QHBoxLayout()
         btn_reset = QPushButton("🔄 恢复默认设置")
@@ -182,6 +250,14 @@ class SettingsDialog(QDialog):
         bottom_layout.addWidget(btn_save)
         
         main_layout.addLayout(bottom_layout)
+        
+        # Finalize scroll area
+        scroll_content.setLayout(main_layout)
+        scroll_area.setWidget(scroll_content)
+        
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll_area)
 
     def load_data(self):
         self.spin_max_points.setValue(self.cm.max_batch_points)
@@ -202,6 +278,18 @@ class SettingsDialog(QDialog):
             self.table_dur_pts.insertRow(row)
             self.table_dur_pts.setItem(row, 0, QTableWidgetItem(str(r["duration"])))
             self.table_dur_pts.setItem(row, 1, QTableWidgetItem(str(r["points"])))
+        
+        # Load API keys
+        self.txt_gladia_keys.setPlainText("\n".join(self.cm.gladia_api_keys))
+        self.txt_elevenlabs_keys.setPlainText("\n".join(self.cm.elevenlabs_api_keys))
+        
+        # Load language selection
+        lang_code = getattr(self.cm, "speech_language", "es")
+        idx = self.combo_language.findData(lang_code)
+        if idx >= 0:
+            self.combo_language.setCurrentIndex(idx)
+        else:
+            self.combo_language.setCurrentIndex(0)  # Default to Spanish
 
     def add_char_row(self):
         row = self.table_char_dur.rowCount()
@@ -275,6 +363,16 @@ class SettingsDialog(QDialog):
             return
             
         self.cm.duration_points_rules = new_pts_rules
+        
+        # Read API keys (filter empty lines)
+        gladia_text = self.txt_gladia_keys.toPlainText().strip()
+        self.cm.gladia_api_keys = [k.strip() for k in gladia_text.split("\n") if k.strip()]
+        
+        elevenlabs_text = self.txt_elevenlabs_keys.toPlainText().strip()
+        self.cm.elevenlabs_api_keys = [k.strip() for k in elevenlabs_text.split("\n") if k.strip()]
+        
+        # Read language
+        self.cm.speech_language = self.combo_language.currentData() or "es"
         
         if self.cm.save():
             QMessageBox.information(self, "成功", "设置保存成功！已按新规则生效。")
