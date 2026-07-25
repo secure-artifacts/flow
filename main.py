@@ -2,9 +2,16 @@
 import sys
 import os
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import qInstallMessageHandler
 from views.main_window import MainWindow
 
+def qt_message_handler(mode, context, message):
+    if "Point size <= 0" in message:
+        return
+    sys.stderr.write(f"{message}\n")
+
 def main():
+    qInstallMessageHandler(qt_message_handler)
     # Create the application
     app = QApplication(sys.argv)
     

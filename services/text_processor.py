@@ -5,6 +5,15 @@ class TextProcessor:
     """Handles text cleaning and smart segmentation for Spanish content."""
     
     @staticmethod
+    def remove_punctuation(text):
+        """Removes all punctuation marks (both English/Spanish and Chinese) from text."""
+        if not text:
+            return ""
+        cleaned = re.sub(r'[^\w\s]', ' ', text)
+        cleaned = cleaned.replace('_', ' ')
+        return re.sub(r'\s+', ' ', cleaned).strip()
+
+    @staticmethod
     def clean_text(text):
         """Cleans input text according to user rules:
         - Removes all emojis and symbols (like '👉', '📖', '✨')
@@ -91,70 +100,96 @@ class TextProcessor:
         return sub_chunks
 
     @staticmethod
-    def segment_spanish_text(text):
-        """Segments cleaned Spanish text prioritizing 10s (141-180 characters) chunks.
-        Rules:
-        - Must cut at line breaks or punctuation (., ?, !, ;, :)
-        - Hard limit: No segment can exceed 180 characters (10s max duration).
-        - L <= 100 -> 6s
-        - 101 <= L <= 140 -> 8s
-        - 141 <= L <= 180 -> 10s
+    def segment_spanish_text(text, config_manager=None):
+        """Segments cleaned Spanish text prioritizing max characters limit per chunk.
+        Supports forced split markers (e.g. '///', '|||', '$$') to enforce hard sentence breaks.
         """
-        cleaned = TextProcessor.clean_text(text)
-        if not cleaned:
+        if not text:
             return []
             
+        max_limit = config_manager.get_max_chars() if config_manager else 180
+        custom_marker = getattr(config_manager, "forced_split_marker", "///") if config_manager else "///"
+        
+        # Build forced split markers pattern
+        markers = [custom_marker, "///", "|||", "$$", "###", "[split]", "[断句]"]
+        unique_markers = list(dict.fromkeys([m for m in markers if m]))
+        pattern_str = '|'.join(re.escape(m) for m in unique_markers)
+        
+        # Pre-split text into isolated blocks by forced split markers
+        forced_blocks = re.split(pattern_str, text)
+        
+        results = []
+        for block in forced_blocks:
+            cleaned_block = TextProcessor.clean_text(block)
+            if not cleaned_block:
+                continue
+            # Process each forced block independently so no greedy merging occurs across markers
+            block_results = TextProcessor._segment_single_block(cleaned_block, max_limit, config_manager)
+            results.extend(block_results)
+            
+        return results
+
+    @staticmethod
+    def _segment_single_block(cleaned_text, max_limit, config_manager=None):
+        """Segments a single forced block using sentence boundaries and greedy merging up to max_limit."""
         initial_chunks = []
-        # Split by newline or sentence-ending punctuation (., ?, !, ;, :) but keep the punctuation.
+        # Split by newline or sentence-ending punctuation (., ?, !, ;, :) but keep punctuation for initial splitting.
         pattern = re.compile(r'([^.!?;\n\r]+[.!?;\n\r]*)')
-        matches = pattern.findall(cleaned)
+        matches = pattern.findall(cleaned_text)
         
         for m in matches:
-            trimmed = m.strip()
+            trimmed = TextProcessor.remove_punctuation(m)
             if trimmed:
                 initial_chunks.append(trimmed)
 
-        # Stage 1: Enforce hard limit on raw chunks by pre-splitting anything > 180 characters
+        # Stage 1: Enforce hard limit on raw chunks by pre-splitting anything > max_limit characters
         raw_chunks = []
         for chunk in initial_chunks:
-            if len(chunk) > 180:
-                raw_chunks.extend(TextProcessor._split_long_chunk(chunk, max_len=180))
+            if len(chunk) > max_limit:
+                raw_chunks.extend(TextProcessor._split_long_chunk(chunk, max_len=max_limit))
             else:
                 raw_chunks.append(chunk)
 
-        # Stage 2: Greedy Merging up to 180 characters
+        # Stage 2: Greedy Merging up to max_limit characters
         segments = []
         current_segment = ""
         
         for chunk in raw_chunks:
             test_segment = (current_segment + " " + chunk).strip() if current_segment else chunk
-            if len(test_segment) <= 180:
+            if len(test_segment) <= max_limit:
                 current_segment = test_segment
             else:
                 if current_segment:
-                    segments.append(current_segment)
+                    segments.append(TextProcessor.remove_punctuation(current_segment))
                 current_segment = chunk
 
         if current_segment:
-            segments.append(current_segment)
+            segments.append(TextProcessor.remove_punctuation(current_segment))
             
-        # Assign durations (guaranteed to be <= 10s because all lengths are <= 180)
-        results = []
+        # Assign durations
+        block_results = []
         for seg in segments:
-            length = len(seg)
-            if length <= 50:
-                duration_val = 4
-            elif length <= 100:
-                duration_val = 6
-            elif length <= 140:
-                duration_val = 8
+            seg_text = TextProcessor.remove_punctuation(seg)
+            if not seg_text:
+                continue
+            length = len(seg_text)
+            
+            if config_manager:
+                duration_val = config_manager.get_duration_for_length(length)
             else:
-                duration_val = 10
+                if length <= 50:
+                    duration_val = 4
+                elif length <= 100:
+                    duration_val = 6
+                elif length <= 140:
+                    duration_val = 8
+                else:
+                    duration_val = 10
                 
-            results.append({
-                "text": seg,
+            block_results.append({
+                "text": seg_text,
                 "length": length,
                 "duration": duration_val
             })
             
-        return results
+        return block_results

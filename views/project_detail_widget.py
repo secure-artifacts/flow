@@ -26,11 +26,15 @@ class ProjectDetailWidget(QWidget):
         self.project_model = None
         self.download_thread = None
         self.template_manager = None
+        self.config_manager = None
         self.copied_rows = set()
         self.init_ui()
 
     def set_template_manager(self, tm):
         self.template_manager = tm
+
+    def set_config_manager(self, cm):
+        self.config_manager = cm
 
     def init_ui(self):
         # Base styling for warm theme
@@ -171,11 +175,53 @@ class ProjectDetailWidget(QWidget):
         
         selectors_layout.addWidget(QLabel("选择提示词模板:"))
         self.combo_templates = QComboBox()
+        self.combo_templates.setMaxVisibleItems(15)
+        self.combo_templates.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.combo_templates.setStyleSheet("""
+            QComboBox {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #D7CCC8;
+                background-color: white;
+                selection-background-color: #FFE0B2;
+                selection-color: #5D4037;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 26px;
+            }
+        """)
         self.combo_templates.currentIndexChanged.connect(self.on_template_changed)
         selectors_layout.addWidget(self.combo_templates, stretch=1)
         
         selectors_layout.addWidget(QLabel("选择运镜预设:"))
         self.combo_motions = QComboBox()
+        self.combo_motions.setMaxVisibleItems(15)
+        self.combo_motions.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.combo_motions.setStyleSheet("""
+            QComboBox {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #D7CCC8;
+                background-color: white;
+                selection-background-color: #FFE0B2;
+                selection-color: #5D4037;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 26px;
+            }
+        """)
         self.combo_motions.currentIndexChanged.connect(self.on_motion_changed)
         selectors_layout.addWidget(self.combo_motions, stretch=1)
         
@@ -208,8 +254,36 @@ class ProjectDetailWidget(QWidget):
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
         
-        right_layout.addWidget(QLabel("切分段落与提示词工作台 (Segments & Prompts):"))
+        # Header Layout with Title and Search Input
+        table_header_layout = QHBoxLayout()
+        lbl_table_title = QLabel("切分段落与提示词工作台 (Segments & Prompts):")
+        table_header_layout.addWidget(lbl_table_title)
+        table_header_layout.addStretch()
+        
+        self.txt_search = QLineEdit()
+        self.txt_search.setObjectName("txt_search")
+        self.txt_search.setPlaceholderText("🔍 搜索本项目文案或提示词...")
+        self.txt_search.setClearButtonEnabled(True)
+        self.txt_search.setFixedWidth(240)
+        self.txt_search.setStyleSheet("""
+            QLineEdit#txt_search {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 12px;
+                color: #5D4037;
+            }
+            QLineEdit#txt_search:focus {
+                border: 1px solid #E0A96D;
+            }
+        """)
+        self.txt_search.textChanged.connect(self.filter_segments_table)
+        table_header_layout.addWidget(self.txt_search)
+        
+        right_layout.addLayout(table_header_layout)
         
         # Inner splitter for Table and Property Panel
         self.table_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -266,9 +340,19 @@ class ProjectDetailWidget(QWidget):
         self.btn_import_report.clicked.connect(self.import_execution_report)
         table_buttons_layout.addWidget(self.btn_import_report)
         
+        self.btn_check_video = QPushButton("🔍 检查视频完整性")
+        self.btn_check_video.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold;")
+        self.btn_check_video.clicked.connect(self.check_video_completeness)
+        table_buttons_layout.addWidget(self.btn_check_video)
+        
         self.btn_save_project = QPushButton("💾 保存修改")
         self.btn_save_project.clicked.connect(self.save_project_data)
         table_buttons_layout.addWidget(self.btn_save_project)
+        
+        self.btn_settings = QPushButton("⚙️ 规则与积分设置")
+        self.btn_settings.setStyleSheet("background-color: #64748B; color: white; font-weight: bold;")
+        self.btn_settings.clicked.connect(self.open_settings_dialog)
+        table_buttons_layout.addWidget(self.btn_settings)
         
         right_layout.addLayout(table_buttons_layout)
         right_widget.setLayout(right_layout)
@@ -433,23 +517,27 @@ class ProjectDetailWidget(QWidget):
             self.table_segments.item(idx, 0).setFlags(Qt.ItemFlag.ItemIsEnabled)
             
             # 1. Spanish segment text (editable)
-            text = seg.get("text", "")
+            text = TextProcessor.remove_punctuation(seg.get("text", ""))
+            seg["text"] = text
             self.table_segments.setItem(idx, 1, QTableWidgetItem(text))
             
             # Calculate length and duration dynamically
             length = len(text)
             
             # Determine duration label
-            if length <= 50:
-                duration_label = "4s"
-            elif length <= 100:
-                duration_label = "6s"
-            elif length <= 140:
-                duration_label = "8s"
-            elif length <= 180:
-                duration_label = "10s"
+            if self.config_manager:
+                duration_label = self.config_manager.get_duration_label(length)
             else:
-                duration_label = "超时 (>10s)"
+                if length <= 50:
+                    duration_label = "4s"
+                elif length <= 100:
+                    duration_label = "6s"
+                elif length <= 140:
+                    duration_label = "8s"
+                elif length <= 180:
+                    duration_label = "10s"
+                else:
+                    duration_label = "超时 (>10s)"
                 
             # 2. Length (read-only)
             self.table_segments.setItem(idx, 2, QTableWidgetItem(str(length)))
@@ -458,7 +546,7 @@ class ProjectDetailWidget(QWidget):
             # 3. Duration (read-only)
             duration_item = QTableWidgetItem(duration_label)
             duration_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            if length > 180:
+            if "超时" in duration_label:
                 duration_item.setForeground(Qt.GlobalColor.red)
             self.table_segments.setItem(idx, 3, duration_item)
             
@@ -487,12 +575,43 @@ class ProjectDetailWidget(QWidget):
             self.table_segments.setCellWidget(idx, 5, btn_widget)
             
         # Apply colors for copied rows
-        if hasattr(self, 'copied_rows'):
-            for r in self.copied_rows:
-                if r < len(segments):
-                    self.change_row_color(r, copied=True)
+        if not hasattr(self, 'copied_rows'):
+            self.copied_rows = set()
+            
+        for idx, seg in enumerate(segments):
+            if seg.get("copied"):
+                self.copied_rows.add(idx)
+                
+        for r in list(self.copied_rows):
+            if r < len(segments):
+                self.change_row_color(r, copied=True)
             
         self.table_segments.blockSignals(False)
+        self.filter_segments_table()
+
+    def filter_segments_table(self, query=None):
+        """Filters the segments table based on search query in segment text or final prompt."""
+        if query is None:
+            query = self.txt_search.text() if hasattr(self, 'txt_search') else ""
+            
+        query = str(query).strip().lower()
+        
+        for row in range(self.table_segments.rowCount()):
+            if not query:
+                self.table_segments.setRowHidden(row, False)
+                continue
+                
+            # Column 1: Segment text
+            text_item = self.table_segments.item(row, 1)
+            text_content = text_item.text().lower() if text_item else ""
+            
+            # Column 4: Final prompt
+            prompt_item = self.table_segments.item(row, 4)
+            prompt_content = prompt_item.text().lower() if prompt_item else ""
+            
+            # Match if query appears in segment text or final prompt
+            match = (query in text_content) or (query in prompt_content)
+            self.table_segments.setRowHidden(row, not match)
 
     def on_cell_changed(self, row, column):
         """Saves edited segment text, updates character count, duration and prompt columns in the UI."""
@@ -500,29 +619,37 @@ class ProjectDetailWidget(QWidget):
             return
             
         text_item = self.table_segments.item(row, 1)
-        new_text = text_item.text().strip() if text_item else ""
+        raw_text = text_item.text().strip() if text_item else ""
+        new_text = TextProcessor.remove_punctuation(raw_text)
         
         # Calculate length and duration
         length = len(new_text)
         
-        if length <= 50:
-            duration_label = "4s"
-            duration_val = 4
-        elif length <= 100:
-            duration_label = "6s"
-            duration_val = 6
-        elif length <= 140:
-            duration_label = "8s"
-            duration_val = 8
-        elif length <= 180:
-            duration_label = "10s"
-            duration_val = 10
+        if self.config_manager:
+            duration_label = self.config_manager.get_duration_label(length)
+            duration_val = self.config_manager.get_duration_for_length(length)
         else:
-            duration_label = "超时 (>10s)"
-            duration_val = 10
+            if length <= 50:
+                duration_label = "4s"
+                duration_val = 4
+            elif length <= 100:
+                duration_label = "6s"
+                duration_val = 6
+            elif length <= 140:
+                duration_label = "8s"
+                duration_val = 8
+            elif length <= 180:
+                duration_label = "10s"
+                duration_val = 10
+            else:
+                duration_label = "超时 (>10s)"
+                duration_val = 10
             
         self.table_segments.blockSignals(True)
         
+        if new_text != raw_text:
+            self.table_segments.setItem(row, 1, QTableWidgetItem(new_text))
+            
         # 1. Update length cell
         self.table_segments.setItem(row, 2, QTableWidgetItem(str(length)))
         self.table_segments.item(row, 2).setFlags(Qt.ItemFlag.ItemIsEnabled)
@@ -685,16 +812,21 @@ class ProjectDetailWidget(QWidget):
     def change_row_color(self, row, copied=True):
         """Change the background color of a specific row to indicate status."""
         from PyQt6.QtGui import QColor
+        if not hasattr(self, 'copied_rows'):
+            self.copied_rows = set()
+            
         if copied:
             bg_color = QColor("#D4EDDA") # Light green
             text_color = QColor("#155724") # Dark green
-            if hasattr(self, 'copied_rows'):
-                self.copied_rows.add(row)
+            self.copied_rows.add(row)
         else:
             bg_color = QColor()
             text_color = QColor()
-            if hasattr(self, 'copied_rows') and row in self.copied_rows:
-                self.copied_rows.discard(row)
+            self.copied_rows.discard(row)
+
+        if self.project_model and row < len(self.project_model.spanish_segments):
+            self.project_model.spanish_segments[row]["copied"] = copied
+            self.project_model.save()
 
         for col in range(5):
             item = self.table_segments.item(row, col)
@@ -756,7 +888,7 @@ class ProjectDetailWidget(QWidget):
             return
             
         # Perform segmentation
-        segments = TextProcessor.segment_spanish_text(text)
+        segments = TextProcessor.segment_spanish_text(text, self.config_manager)
         self.project_model.spanish_segments = segments
         self.populate_segments_table()
         QMessageBox.information(self, "成功", "已完成西文的表情清理与智能切分！")
@@ -776,7 +908,8 @@ class ProjectDetailWidget(QWidget):
             text_item = self.table_segments.item(row, 1)
             duration_item = self.table_segments.item(row, 3)
             
-            text = text_item.text().strip() if text_item else ""
+            raw_text = text_item.text().strip() if text_item else ""
+            text = TextProcessor.remove_punctuation(raw_text)
             dur_str = duration_item.text().strip().replace("s", "") if duration_item else "6"
             try:
                 duration = int(dur_str)
@@ -1046,6 +1179,23 @@ class ProjectDetailWidget(QWidget):
         # Image selector
         panel_layout.addWidget(QLabel("📸 关联图片素材:"))
         self.combo_prop_image = QComboBox()
+        self.combo_prop_image.setMaxVisibleItems(15)
+        self.combo_prop_image.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.combo_prop_image.setStyleSheet("""
+            QComboBox {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #D7CCC8;
+                background-color: white;
+                selection-background-color: #FFE0B2;
+                selection-color: #5D4037;
+                outline: none;
+            }
+        """)
         self.combo_prop_image.currentIndexChanged.connect(self.on_prop_image_changed)
         panel_layout.addWidget(self.combo_prop_image)
         
@@ -1269,8 +1419,28 @@ class ProjectDetailWidget(QWidget):
             QMessageBox.warning(self, "提示", "当前项目没有西文分句，无法生成任务。")
             return
             
-        # Get active template & motion
+        # 1. Check prompt template selection
         tpl_id = self.combo_templates.currentData()
+        if not tpl_id:
+            QMessageBox.warning(self, "提示", "导出失败：请先选择提示词模板！")
+            return
+            
+        # 2. Check image material association for all segments
+        missing_image_rows = []
+        for idx, seg in enumerate(segments):
+            if not seg.get("image_name"):
+                missing_image_rows.append(idx + 1)
+                
+        if missing_image_rows:
+            if len(missing_image_rows) == len(segments):
+                QMessageBox.warning(self, "提示", "导出失败：句段尚未关联图片素材，请先选择关联图片素材！")
+            else:
+                rows_str = "、".join([f"第 {r} 句" for r in missing_image_rows[:5]])
+                if len(missing_image_rows) > 5:
+                    rows_str += f" 等 {len(missing_image_rows)} 句"
+                QMessageBox.warning(self, "提示", f"导出失败：{rows_str} 尚未关联图片素材，请先选择关联图片素材！")
+            return
+            
         motion_id = self.combo_motions.currentData()
         tpl = self.template_manager.get_template(tpl_id) if self.template_manager else None
         motion = self.template_manager.get_motion(motion_id) if self.template_manager else None
@@ -1278,8 +1448,18 @@ class ProjectDetailWidget(QWidget):
         motion_content = motion["content"] if motion else ""
         
         all_tasks = []
+        skipped_copied_count = 0
+        
         for idx, seg in enumerate(segments):
-            text = seg.get("text", "")
+            # Exclude segments that have already been manually copied/generated (indicated by green state)
+            is_copied = seg.get("copied", False) or (hasattr(self, 'copied_rows') and idx in self.copied_rows)
+            if is_copied:
+                skipped_copied_count += 1
+                continue
+                
+            raw_text = seg.get("text", "")
+            text = TextProcessor.remove_punctuation(raw_text)
+            seg["text"] = text
             # Generate final prompt
             final_prompt = template_content.replace("{spanish_text}", text)
             final_prompt = final_prompt.replace("{camera_motion}", motion_content)
@@ -1306,37 +1486,125 @@ class ProjectDetailWidget(QWidget):
                 "duration": duration,
                 "download_path": download_path,
                 "_raw_duration": duration,
-                "_original_index": idx
+                "_original_index": idx,
+                "_text_len": len(text)
             })
+
+        if not all_tasks:
+            if skipped_copied_count > 0:
+                QMessageBox.information(
+                    self, "提示", 
+                    f"所有 {skipped_copied_count} 个分句均已手动复制/生成过（已变绿标结）。\n"
+                    "已自动排除这些片段，没有需要新导出的任务！\n\n"
+                    "💡 如需重新导出，请在表格中双击对应句子的【秒数】列取消已完成标绿即可。"
+                )
+            else:
+                QMessageBox.warning(self, "提示", "当前项目没有可导出的有效分句。")
+            return
             
         # Partition tasks using First Fit Decreasing (FFD) to maximize points utilization per batch
         batches = []
-        points_map = {10: 15, 8: 12, 6: 10, 4: 7}
+        max_batch_points = self.config_manager.max_batch_points if self.config_manager else 50
         
-        # Sort tasks descending by points
-        sorted_tasks = sorted(all_tasks, key=lambda t: points_map.get(t["_raw_duration"], 7), reverse=True)
+        def get_task_points_val(dur):
+            if self.config_manager:
+                return self.config_manager.get_points_for_duration(dur)
+            points_map = {10: 15, 8: 12, 6: 10, 4: 7}
+            return points_map.get(dur, 7)
+
+        def get_task_points(task):
+            return get_task_points_val(task.get("duration", task.get("_raw_duration", 6)))
+            
+        # Sort tasks descending by base points
+        sorted_tasks = sorted(all_tasks, key=get_task_points, reverse=True)
         
         for task in sorted_tasks:
-            pts = points_map.get(task["_raw_duration"], 7)
+            pts = get_task_points(task)
             # Find the first batch that can fit this task
             placed = False
             for batch in batches:
                 # Calculate current points in this batch
-                batch_points = sum(points_map.get(t["_raw_duration"], 7) for t in batch)
-                if batch_points + pts <= 50:
+                batch_points = sum(get_task_points(t) for t in batch)
+                if batch_points + pts <= max_batch_points:
                     batch.append(task)
                     placed = True
                     break
             if not placed:
                 # Create a new batch
                 batches.append([task])
+
+        # Intelligent Points Maximization: Upgrade durations in each batch to squeeze remaining budget
+        # Duration rules sorted ascending: e.g. [(4, 7), (6, 10), (8, 12), (10, 15)]
+        if self.config_manager and self.config_manager.duration_points_rules:
+            tiers = sorted(self.config_manager.duration_points_rules, key=lambda x: x["duration"])
+        else:
+            tiers = [{"duration": 4, "points": 7}, {"duration": 6, "points": 10}, 
+                     {"duration": 8, "points": 12}, {"duration": 10, "points": 15}]
+                     
+        dur_to_next = {}
+        for i in range(len(tiers) - 1):
+            curr_d = tiers[i]["duration"]
+            next_d = tiers[i+1]["duration"]
+            diff_p = tiers[i+1]["points"] - tiers[i]["points"]
+            dur_to_next[curr_d] = (next_d, diff_p)
+
+        for batch in batches:
+            cur_pts = sum(get_task_points(t) for t in batch)
+            headroom = max_batch_points - cur_pts
+            
+            while headroom > 0:
+                # Candidates that can be upgraded to next duration tier
+                candidates = [t for t in batch if t["duration"] in dur_to_next]
+                if not candidates:
+                    break
+                    
+                # Priority: 1) higher current duration, 2) longer character length (_text_len)
+                candidates.sort(key=lambda t: (t["duration"], t["_text_len"]), reverse=True)
+                
+                upgraded_any = False
+                for task in candidates:
+                    next_dur, cost_diff = dur_to_next[task["duration"]]
+                    if cost_diff <= headroom:
+                        task["duration"] = next_dur
+                        headroom -= cost_diff
+                        upgraded_any = True
+                        break # Re-sort & re-evaluate candidates for next upgrade
+                        
+                if not upgraded_any:
+                    break
                 
         # Sort tasks within each batch by their original chronological index for clear display
         for batch in batches:
             batch.sort(key=lambda t: t["_original_index"])
             
         # Open the batch copy dialog
-        dialog = BatchExportDialog(self, batches)
+        dialog = BatchExportDialog(self, batches, self.config_manager, skipped_count=skipped_copied_count)
+        dialog.exec()
+
+    def open_settings_dialog(self):
+        """Opens rules and points settings dialog."""
+        from views.settings_dialog import SettingsDialog
+        if not self.config_manager:
+            main_win = self.window()
+            if hasattr(main_win, "config_manager"):
+                self.config_manager = main_win.config_manager
+                
+        if self.config_manager:
+            dialog = SettingsDialog(self.config_manager, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.populate_segments_table()
+
+    def check_video_completeness(self):
+        """Scans disk for generated video files and displays completeness inspection dialog."""
+        if not self.project_model:
+            QMessageBox.warning(self, "提示", "请先打开一个工程项目。")
+            return
+            
+        from services.video_checker import VideoChecker
+        from views.video_check_dialog import VideoCheckDialog
+        
+        report = VideoChecker.check_project_videos(self.project_model, self.project_path)
+        dialog = VideoCheckDialog(report, self.project_model, self.project_path, self)
         dialog.exec()
 
     def import_execution_report(self):
@@ -1450,9 +1718,12 @@ class ProjectDetailWidget(QWidget):
 
 
 class BatchExportDialog(QDialog):
-    def __init__(self, parent, batches):
+    def __init__(self, parent, batches, config_manager=None, skipped_count=0):
         super().__init__(parent)
-        self.setWindowTitle("分批复制生成任务 (每批最高50积分)")
+        self.cm = config_manager
+        self.skipped_count = skipped_count
+        max_pts = self.cm.max_batch_points if self.cm else 50
+        self.setWindowTitle(f"分批复制生成任务 (每批最高{max_pts}积分)")
         self.resize(550, 400)
         self.batches = batches  # List of lists of dicts
         self.copied_batches = set()
@@ -1466,11 +1737,14 @@ class BatchExportDialog(QDialog):
         # Summary Label
         total_segments = sum(len(b) for b in self.batches)
         total_points = sum(self.get_batch_points(b) for b in self.batches)
+        max_pts = self.cm.max_batch_points if self.cm else 50
+        
+        skipped_text = f" <span style='color: #10B981;'>(已自动排除 {self.skipped_count} 个已生成的变绿片段)</span>" if self.skipped_count > 0 else ""
         
         lbl_summary = QLabel(
-            f"📊 <b>统计信息</b>：共 <b>{total_segments}</b> 个视频片段，"
+            f"📊 <b>统计信息</b>：共 <b>{total_segments}</b> 个待生成视频片段{skipped_text}，"
             f"总需 <b>{total_points}</b> 积分。<br/>"
-            f"每批次点数上限为 <b>50</b> 积分，已智能分拆为 <b>{len(self.batches)}</b> 个批次进行生成。"
+            f"每批次点数上限为 <b>{max_pts}</b> 积分，已智能分拆为 <b>{len(self.batches)}</b> 个批次进行生成。"
         )
         lbl_summary.setStyleSheet("font-size: 13px; color: #5D4037;")
         layout.addWidget(lbl_summary)
@@ -1536,10 +1810,12 @@ class BatchExportDialog(QDialog):
         layout.addWidget(btn_close)
         
     def get_batch_points(self, batch):
+        if self.cm:
+            return sum(self.cm.get_points_for_duration(item.get("duration", item.get("_raw_duration", 6))) for item in batch)
         points_map = {10: 15, 8: 12, 6: 10, 4: 7}
         total = 0
         for item in batch:
-            dur = item.get("_raw_duration", 6)
+            dur = item.get("duration", item.get("_raw_duration", 6))
             total += points_map.get(dur, 7)
         return total
         

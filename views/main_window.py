@@ -1,12 +1,105 @@
 # -*- coding: utf-8 -*-
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QListWidget, 
-                             QListWidgetItem, QSplitter, QFileDialog, QMessageBox)
+                             QListWidgetItem, QSplitter, QFileDialog, QMessageBox,
+                             QInputDialog, QMenu, QToolTip, QDialog, QSpinBox)
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QGuiApplication, QCursor
 from models.storage_manager import StorageManager
 from views.import_dialog import ImportDialog
 from views.project_detail_widget import ProjectDetailWidget
 from pathlib import Path
+
+class RenameProjectDialog(QDialog):
+    """Dialog for modifying all parts of a project (Index, Project Name, and Notes)."""
+    
+    def __init__(self, index, col1_name, col7_notes, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("✏️ 重命名项目 (Rename Project)")
+        self.resize(420, 260)
+        self.index_val = index
+        self.col1_val = col1_name
+        self.col7_val = col7_notes
+        self.init_ui()
+        
+    def init_ui(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #FAF6F0;
+                color: #5D4037;
+                font-family: "Segoe UI", sans-serif;
+            }
+            QLabel {
+                font-size: 13px;
+                color: #5D4037;
+                font-weight: bold;
+            }
+            QLineEdit, QSpinBox {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 6px 10px;
+                font-size: 13px;
+                color: #5D4037;
+            }
+            QLineEdit:focus, QSpinBox:focus {
+                border: 1px solid #E0A96D;
+            }
+            QPushButton {
+                background-color: #E0A96D;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #D2904C;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        
+        # Index field
+        idx_layout = QHBoxLayout()
+        idx_layout.addWidget(QLabel("项目序号 (Index):"))
+        self.spin_index = QSpinBox()
+        self.spin_index.setRange(1, 9999)
+        self.spin_index.setValue(int(self.index_val) if self.index_val else 1)
+        idx_layout.addWidget(self.spin_index, stretch=1)
+        layout.addLayout(idx_layout)
+        
+        # Name field
+        layout.addWidget(QLabel("项目名称 (Project Name):"))
+        self.txt_name = QLineEdit()
+        self.txt_name.setText(self.col1_val)
+        layout.addWidget(self.txt_name)
+        
+        # Notes field
+        layout.addWidget(QLabel("项目备注/后缀 (Notes):"))
+        self.txt_notes = QLineEdit()
+        self.txt_notes.setText(self.col7_val)
+        layout.addWidget(self.txt_notes)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        btn_cancel = QPushButton("取消")
+        btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_cancel)
+        
+        btn_save = QPushButton("💾 确认修改")
+        btn_save.setStyleSheet("background-color: #10B981; color: white; font-weight: bold;")
+        btn_save.clicked.connect(self.accept)
+        btn_layout.addWidget(btn_save)
+        
+        layout.addLayout(btn_layout)
+
+    def get_values(self):
+        return self.spin_index.value(), self.txt_name.text().strip(), self.txt_notes.text().strip()
 
 class MainWindow(QMainWindow):
     """Main window of the Project Manager application."""
@@ -17,13 +110,16 @@ class MainWindow(QMainWindow):
         self.storage_manager = StorageManager(self.workspace_dir)
         self.active_downloads = {}
         
-        # Initialize TemplateManager
+        # Initialize TemplateManager & ConfigManager
         from models.template_manager import TemplateManager
+        from models.config_manager import ConfigManager
         self.template_manager = TemplateManager(self.workspace_dir)
+        self.config_manager = ConfigManager(self.workspace_dir)
         
         self.init_ui()
-        # Bind template manager to detail panel
+        # Bind template & config manager to detail panel
         self.detail_widget.set_template_manager(self.template_manager)
+        self.detail_widget.set_config_manager(self.config_manager)
         self.load_initial_state()
 
     def init_ui(self):
@@ -146,6 +242,13 @@ class MainWindow(QMainWindow):
         self.btn_template_config.clicked.connect(self.open_template_config_dialog)
         top_layout.addWidget(self.btn_template_config)
         
+        top_layout.addSpacing(8)
+        
+        self.btn_rules_config = QPushButton("⚙️ 规则设置")
+        self.btn_rules_config.setObjectName("btn_rules_config")
+        self.btn_rules_config.clicked.connect(self.open_settings_dialog)
+        top_layout.addWidget(self.btn_rules_config)
+        
         main_layout.addLayout(top_layout)
         
         # 2. Main Area (Splitter: Sidebar and Details)
@@ -160,6 +263,9 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(QLabel("项目列表 (Projects):"))
         self.list_projects = QListWidget()
         self.list_projects.itemClicked.connect(self.on_project_clicked)
+        self.list_projects.itemDoubleClicked.connect(self.on_project_double_clicked)
+        self.list_projects.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_projects.customContextMenuRequested.connect(self.show_project_context_menu)
         sidebar_layout.addWidget(self.list_projects)
         
         # Add delete button under the list
@@ -238,11 +344,138 @@ class MainWindow(QMainWindow):
         if dialog.exec() == ImportDialog.DialogCode.Accepted:
             self.reload_projects_list()
 
+    def open_settings_dialog(self):
+        """Opens rules & points settings dialog."""
+        from views.settings_dialog import SettingsDialog
+        dialog = SettingsDialog(self.config_manager, self)
+        if dialog.exec() == SettingsDialog.DialogCode.Accepted:
+            if hasattr(self, "detail_widget"):
+                self.detail_widget.set_config_manager(self.config_manager)
+                self.detail_widget.populate_segments_table()
+
     def on_project_clicked(self, item):
         """Triggers detail load when sidebar item is clicked."""
         path = item.data(Qt.ItemDataRole.UserRole)
         if path:
             self.detail_widget.set_project(path)
+
+    def on_project_double_clicked(self, item):
+        """Copies the entire full project name (including index prefix and notes) to clipboard."""
+        if not item:
+            return
+            
+        import re
+        full_name = item.text().replace("●", "").strip()
+        full_name = re.sub(r' +', ' ', full_name)
+        
+        clipboard = QGuiApplication.clipboard()
+        clipboard.setText(full_name)
+        QToolTip.showText(QCursor.pos(), f"已复制完整项目名称:\n{full_name}", self)
+
+    def show_project_context_menu(self, pos):
+        """Displays context menu for renaming, copying full name, or deleting project."""
+        item = self.list_projects.itemAt(pos)
+        if not item:
+            return
+            
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 20px 6px 10px;
+                font-size: 13px;
+                color: #5D4037;
+            }
+            QMenu::item:selected {
+                background-color: #FFE0B2;
+                border-radius: 3px;
+            }
+        """)
+        
+        act_rename = menu.addAction("✏️ 重命名项目 (Rename)")
+        act_copy_name = menu.addAction("📋 复制完整项目名称 (Copy Full Name)")
+        menu.addSeparator()
+        act_delete = menu.addAction("🗑️ 删除项目 (Delete)")
+        
+        action = menu.exec(self.list_projects.mapToGlobal(pos))
+        if action == act_rename:
+            self.rename_project(item)
+        elif action == act_copy_name:
+            self.on_project_double_clicked(item)
+        elif action == act_delete:
+            self.delete_selected_project()
+
+    def rename_project(self, item):
+        """Opens dialog to rename all parts (Index, Name, Notes) of a project and updates storage and metadata."""
+        project_path_str = item.data(Qt.ItemDataRole.UserRole)
+        if not project_path_str:
+            return
+            
+        path = Path(project_path_str)
+        if not path.exists():
+            return
+            
+        from models.project_model import ProjectModel
+        try:
+            model = ProjectModel(path)
+            old_index = model.index
+            old_name = model.col1_name
+            old_notes = model.col7_notes
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"读取项目信息失败: {e}")
+            return
+
+        dialog = RenameProjectDialog(old_index, old_name, old_notes, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_index, new_name, new_notes = dialog.get_values()
+            
+            if not new_name:
+                QMessageBox.warning(self, "警告", "项目名称不能为空！")
+                return
+                
+            try:
+                # Update model
+                model.index = new_index
+                model.col1_name = new_name
+                model.col7_notes = new_notes
+                model.save()
+                
+                # Format new folder name on disk
+                invalid_chars = '<>:"/\\|?*'
+                c1 = "".join(c for c in new_name if c not in invalid_chars).strip()[:50]
+                c7 = "".join(c for c in new_notes if c not in invalid_chars).strip()[:50]
+                
+                new_dir_name = f"{new_index:02d}_{c1}_{c7}-flow"
+                new_dir_path = path.parent / new_dir_name
+                
+                target_path = path
+                if new_dir_path != path and not new_dir_path.exists():
+                    try:
+                        path.rename(new_dir_path)
+                        target_path = new_dir_path
+                        model.project_dir = new_dir_path
+                        model.project_id = new_dir_name
+                        model.save()
+                    except Exception as e:
+                        print(f"Directory rename failed, metadata updated: {e}")
+                        
+                # Reload project list
+                self.reload_projects_list()
+                
+                # If detail_widget is currently displaying this project, update it
+                if hasattr(self, "detail_widget"):
+                    current_active = self.detail_widget.project_path
+                    if current_active and (Path(current_active) == path or Path(current_active) == target_path):
+                        self.detail_widget.set_project(target_path)
+                        
+                QMessageBox.information(self, "成功", "项目基本信息修改成功！")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"修改项目失败: {e}")
 
     def start_background_download(self, project_id, url, project_dir):
         """Starts an asynchronous background download of Google Drive link for a project."""

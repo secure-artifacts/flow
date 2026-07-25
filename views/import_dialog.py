@@ -279,8 +279,9 @@ class ImportDialog(QDialog):
                 proj.google_drive_url = col6
                 proj.chinese_text = col4
                 proj.spanish_text = col5
-                # Auto clean and segment Spanish text on import
-                proj.spanish_segments = TextProcessor.segment_spanish_text(col5)
+                # Auto clean and segment Spanish text on import using config_manager rules if available
+                config_mgr = getattr(self.parent(), "config_manager", None)
+                proj.spanish_segments = TextProcessor.segment_spanish_text(col5, config_mgr)
                 proj.save()
                 
                 # 3. Trigger automatic background download via parent MainWindow

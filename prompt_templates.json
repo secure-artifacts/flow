@@ -18,5 +18,80 @@
         "id": "tpl_walking",
         "name": "走路类",
         "content": "禁止改变图中人物的形象和装饰品，人物缓缓往前走，镜头缓缓向后移动，人物面带笑容的看着镜头说话，禁止皱眉头，有一些手部动作，有感情的说：“{spanish_text}”（话要说完整说准确，说的有感情。） {camera_motion}。不加转场,不模糊虚化.不叠化。 人物眼部： \"Subtle flickering of eyelashes\"（睫毛微颤）。 人物超真实皮肤毛孔、强烈的面部微表情。 现代 4K 数字电影质感，超清晰锐利对焦。极度纯净的镜头，无胶片颗粒，无漏光，无闪烁。鲜艳自然的色彩，高清晰度。"
+    },
+    {
+        "id": "tpl_70c3dda6",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_5945ddb2",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_5f48ba7e",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_1f603110",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_8242d502",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_e4b24e2f",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_4f46d7ac",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_3304b812",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_a369a2f6",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_bb831f00",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_9feb5444",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_fe517d61",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_bc2fa96c",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_4d513178",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
+    },
+    {
+        "id": "tpl_7cca874e",
+        "name": "未命名提示词模板",
+        "content": "这里是您的提示词模板，包含占位符 {spanish_text} 和 {camera_motion}。"
     }
 ]
