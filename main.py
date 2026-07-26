@@ -47,7 +47,11 @@ sys.excepthook = handle_exception
 def qt_message_handler(mode, context, message):
     if "Point size <= 0" in message:
         return
-    sys.stderr.write(f"{message}\n")
+    if sys.stderr is not None:
+        try:
+            sys.stderr.write(f"{message}\n")
+        except Exception:
+            pass
 
 def main():
     try:
