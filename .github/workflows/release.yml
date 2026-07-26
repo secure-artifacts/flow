@@ -30,13 +30,32 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller PyQt6 pillow requests gdown beautifulsoup4
+          pip install pyinstaller PyQt6 PyQt6-QtMultimedia pillow requests gdown beautifulsoup4
 
       - name: Build executable (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          pyinstaller --name=flow --windowed --onefile main.py
+          pyinstaller --name=flow --windowed --onefile `
+            --hidden-import=views `
+            --hidden-import=views.main_window `
+            --hidden-import=views.project_detail_widget `
+            --hidden-import=views.import_dialog `
+            --hidden-import=views.settings_dialog `
+            --hidden-import=views.template_config_dialog `
+            --hidden-import=views.video_check_dialog `
+            --hidden-import=views.video_compare_widget `
+            --hidden-import=models `
+            --hidden-import=models.storage_manager `
+            --hidden-import=models.project_model `
+            --hidden-import=models.config_manager `
+            --hidden-import=models.template_manager `
+            --hidden-import=services `
+            --hidden-import=services.text_processor `
+            --hidden-import=services.downloader `
+            --hidden-import=services.speech_extractor `
+            --hidden-import=services.video_checker `
+            main.py
           mkdir dist/flow_windows
           cp dist/flow.exe dist/flow_windows/
           cp camera_motions.json dist/flow_windows/
@@ -50,7 +69,26 @@ jobs:
       - name: Build executable (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --name=flow --windowed main.py
+          pyinstaller --name=flow --windowed \
+            --hidden-import=views \
+            --hidden-import=views.main_window \
+            --hidden-import=views.project_detail_widget \
+            --hidden-import=views.import_dialog \
+            --hidden-import=views.settings_dialog \
+            --hidden-import=views.template_config_dialog \
+            --hidden-import=views.video_check_dialog \
+            --hidden-import=views.video_compare_widget \
+            --hidden-import=models \
+            --hidden-import=models.storage_manager \
+            --hidden-import=models.project_model \
+            --hidden-import=models.config_manager \
+            --hidden-import=models.template_manager \
+            --hidden-import=services \
+            --hidden-import=services.text_processor \
+            --hidden-import=services.downloader \
+            --hidden-import=services.speech_extractor \
+            --hidden-import=services.video_checker \
+            main.py
           cp camera_motions.json dist/
           cp prompt_templates.json dist/
           cp LICENSE dist/
