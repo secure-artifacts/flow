@@ -27,24 +27,34 @@ def main():
             f.write(f"Workspace: {workspace_dir}\n")
             f.write(f"MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}\n\n")
 
-        # For PyInstaller --onefile: Qt plugins are extracted to _MEIPASS
-        # but Qt doesn't know to look there. Set the plugin path explicitly.
+        # For PyInstaller --onefile: Qt DLLs and plugins are extracted to _MEIPASS
+        # but Windows and Qt don't know to look there. Must set paths explicitly
+        # BEFORE importing PyQt6, otherwise loading .pyd files triggers a hard crash
+        # because they can't find Qt6Core.dll, Qt6Gui.dll, etc.
         if getattr(sys, 'frozen', False):
             meipass = sys._MEIPASS
+
+            # 1. Register Qt6 DLL directory so Windows can find Qt6Core.dll etc.
+            qt_bin = os.path.join(meipass, "PyQt6", "Qt6", "bin")
+            if os.path.isdir(qt_bin):
+                os.add_dll_directory(qt_bin)
+                os.environ["PATH"] = qt_bin + os.pathsep + os.environ.get("PATH", "")
+
+            # Also add _MEIPASS itself (some DLLs may be placed at root level)
+            os.add_dll_directory(meipass)
+
+            # 2. Set Qt plugin path so Qt can find platform/style plugins
             qt_plugins = os.path.join(meipass, "PyQt6", "Qt6", "plugins")
             if os.path.isdir(qt_plugins):
                 os.environ["QT_PLUGIN_PATH"] = qt_plugins
-            # Fallback: some PyInstaller versions put plugins directly in _MEIPASS
             elif os.path.isdir(os.path.join(meipass, "plugins")):
                 os.environ["QT_PLUGIN_PATH"] = os.path.join(meipass, "plugins")
 
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"QT_PLUGIN_PATH: {os.environ.get('QT_PLUGIN_PATH', 'NOT SET')}\n")
-                # List what's actually in _MEIPASS for debugging
-                f.write(f"_MEIPASS contents: {os.listdir(meipass)[:30]}\n")
-                pyqt6_dir = os.path.join(meipass, "PyQt6")
-                if os.path.isdir(pyqt6_dir):
-                    f.write(f"PyQt6 dir contents: {os.listdir(pyqt6_dir)[:20]}\n")
+                f.write(f"Qt6 bin dir: {qt_bin} (exists: {os.path.isdir(qt_bin)})\n")
+                if os.path.isdir(qt_bin):
+                    f.write(f"Qt6 bin contents: {os.listdir(qt_bin)[:20]}\n")
                 f.write("\n")
 
         from PyQt6.QtWidgets import QApplication
