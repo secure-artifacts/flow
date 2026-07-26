@@ -37,6 +37,10 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller --name=flow --windowed `
+            --hidden-import=PIL `
+            --hidden-import=bs4 `
+            --hidden-import=gdown `
+            --hidden-import=requests `
             --hidden-import=views `
             --hidden-import=views.main_window `
             --hidden-import=views.project_detail_widget `
@@ -67,6 +71,10 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           pyinstaller --name=flow --windowed \
+            --hidden-import=PIL \
+            --hidden-import=bs4 \
+            --hidden-import=gdown \
+            --hidden-import=requests \
             --hidden-import=views \
             --hidden-import=views.main_window \
             --hidden-import=views.project_detail_widget \
