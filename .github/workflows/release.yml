@@ -36,7 +36,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          pyinstaller --name=flow --windowed --onefile `
+          pyinstaller --name=flow --windowed `
             --hidden-import=views `
             --hidden-import=views.main_window `
             --hidden-import=views.project_detail_widget `
@@ -56,15 +56,12 @@ jobs:
             --hidden-import=services.speech_extractor `
             --hidden-import=services.video_checker `
             main.py
-          mkdir dist/flow_windows
-          cp dist/flow.exe dist/flow_windows/
-          cp camera_motions.json dist/flow_windows/
-          cp prompt_templates.json dist/flow_windows/
-          cp LICENSE dist/flow_windows/
-          cp LICENSE.LIST dist/flow_windows/
+          cp camera_motions.json dist/flow/
+          cp prompt_templates.json dist/flow/
+          cp LICENSE dist/flow/
+          cp LICENSE.LIST dist/flow/
           cd dist
-          Compress-Archive -Path flow_windows/* -DestinationPath flow-windows-${{ github.ref_name }}.zip
-          Remove-Item -Recurse -Force flow_windows
+          Compress-Archive -Path flow -DestinationPath flow-windows-${{ github.ref_name }}.zip
 
       - name: Build executable (macOS)
         if: matrix.os == 'macos-latest'
@@ -89,12 +86,12 @@ jobs:
             --hidden-import=services.speech_extractor \
             --hidden-import=services.video_checker \
             main.py
-          cp camera_motions.json dist/
-          cp prompt_templates.json dist/
-          cp LICENSE dist/
-          cp LICENSE.LIST dist/
+          cp camera_motions.json dist/flow/
+          cp prompt_templates.json dist/flow/
+          cp LICENSE dist/flow/
+          cp LICENSE.LIST dist/flow/
           cd dist
-          zip -r flow-macos-${{ github.ref_name }}.zip flow.app camera_motions.json prompt_templates.json LICENSE LICENSE.LIST
+          zip -r flow-macos-${{ github.ref_name }}.zip flow
 
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@v2
