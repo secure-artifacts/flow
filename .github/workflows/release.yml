@@ -38,7 +38,7 @@ jobs:
         run: |
           pyinstaller --name=flow --windowed --onefile `
             --paths=. `
-            --collect-submodules=PyQt6 `
+            --collect-all=PyQt6 `
             --hidden-import=views `
             --hidden-import=views.main_window `
             --hidden-import=views.project_detail_widget `
@@ -73,7 +73,7 @@ jobs:
         run: |
           pyinstaller --name=flow --windowed \
             --paths=. \
-            --collect-submodules=PyQt6 \
+            --collect-all=PyQt6 \
             --hidden-import=views \
             --hidden-import=views.main_window \
             --hidden-import=views.project_detail_widget \

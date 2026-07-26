@@ -15,7 +15,18 @@ def main():
     else:
         workspace_dir = os.path.dirname(os.path.abspath(__file__))
 
+    log_path = os.path.join(workspace_dir, "crash_log.txt")
+
     try:
+        # Write startup marker so we know the exe at least started
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"flow starting...\n")
+            f.write(f"Python: {sys.version}\n")
+            f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
+            f.write(f"Exe: {sys.executable}\n")
+            f.write(f"Workspace: {workspace_dir}\n")
+            f.write(f"MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}\n\n")
+
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtCore import qInstallMessageHandler
         from views.main_window import MainWindow
@@ -32,14 +43,17 @@ def main():
         # Create and show main window
         window = MainWindow(workspace_dir)
         window.show()
+
+        # If we get here, delete the startup log (app launched successfully)
+        if os.path.exists(log_path):
+            os.remove(log_path)
         
         # Execute the app
         sys.exit(app.exec())
-    except Exception:
-        # Write crash log next to the executable so users can report issues
-        log_path = os.path.join(workspace_dir, "crash_log.txt")
-        with open(log_path, "w", encoding="utf-8") as f:
-            f.write(traceback.format_exc())
+    except BaseException as e:
+        # Append crash info to log
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"CRASH:\n{traceback.format_exc()}\n")
         raise
 
 if __name__ == "__main__":
