@@ -174,7 +174,7 @@ class ProjectDetailWidget(QWidget):
         selectors_layout = QHBoxLayout()
         selectors_layout.setSpacing(10)
         
-        selectors_layout.addWidget(QLabel("选择提示词模板:"))
+        selectors_layout.addWidget(QLabel("选择统一提示词模板:"))
         self.combo_templates = QComboBox()
         self.combo_templates.setMaxVisibleItems(15)
         self.combo_templates.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -200,7 +200,7 @@ class ProjectDetailWidget(QWidget):
         self.combo_templates.currentIndexChanged.connect(self.on_template_changed)
         selectors_layout.addWidget(self.combo_templates, stretch=1)
         
-        selectors_layout.addWidget(QLabel("选择运镜预设:"))
+        selectors_layout.addWidget(QLabel("选择统一运镜预设:"))
         self.combo_motions = QComboBox()
         self.combo_motions.setMaxVisibleItems(15)
         self.combo_motions.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -225,6 +225,25 @@ class ProjectDetailWidget(QWidget):
         """)
         self.combo_motions.currentIndexChanged.connect(self.on_motion_changed)
         selectors_layout.addWidget(self.combo_motions, stretch=1)
+        
+        self.btn_reset_all_segments = QPushButton("⚡ 重置所有片段为统一设置")
+        self.btn_reset_all_segments.setStyleSheet("""
+            QPushButton {
+                background-color: #8D6E63;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #795548;
+            }
+        """)
+        self.btn_reset_all_segments.setToolTip("清空所有片段的单独模板与镜头设置，重新统一使用上方的全局设置。")
+        self.btn_reset_all_segments.clicked.connect(self.reset_all_segments_to_unified)
+        selectors_layout.addWidget(self.btn_reset_all_segments)
         
         tab_layout.addLayout(selectors_layout)
         
@@ -503,20 +522,15 @@ class ProjectDetailWidget(QWidget):
                 if not seg.get("image_name"):
                     seg["image_name"] = single_img
         
-        # Get active template & motion
-        tpl_id = self.combo_templates.currentData()
-        motion_id = self.combo_motions.currentData()
-        
-        tpl = self.template_manager.get_template(tpl_id) if self.template_manager else None
-        motion = self.template_manager.get_motion(motion_id) if self.template_manager else None
-        
-        template_content = tpl["content"] if tpl else "{spanish_text}"
-        motion_content = motion["content"] if motion else ""
-        
         for idx, seg in enumerate(segments):
-            # 0. Index
+            # 0. Index & Icons (📷: has image, ⚙️: has custom template/motion)
             has_image = bool(seg.get("image_name"))
-            idx_text = f"{idx + 1} 📷" if has_image else str(idx + 1)
+            has_custom = bool(seg.get("template_id")) or bool(seg.get("motion_id"))
+            idx_text = str(idx + 1)
+            if has_image:
+                idx_text += " 📷"
+            if has_custom:
+                idx_text += " ⚙️"
             self.table_segments.setItem(idx, 0, QTableWidgetItem(idx_text))
             self.table_segments.item(idx, 0).setFlags(Qt.ItemFlag.ItemIsEnabled)
             
@@ -554,7 +568,11 @@ class ProjectDetailWidget(QWidget):
                 duration_item.setForeground(Qt.GlobalColor.red)
             self.table_segments.setItem(idx, 3, duration_item)
             
-            # 4. Generated final prompt (read-only)
+            # 4. Generated final prompt (read-only, taking segment override or global fallback)
+            tpl, motion = self.get_effective_template_and_motion(idx)
+            template_content = tpl["content"] if tpl else "{spanish_text}"
+            motion_content = motion["content"] if motion else ""
+            
             final_prompt = template_content.replace("{spanish_text}", text)
             final_prompt = final_prompt.replace("{camera_motion}", motion_content)
             final_prompt = re.sub(r' +', ' ', final_prompt).strip()
@@ -666,10 +684,7 @@ class ProjectDetailWidget(QWidget):
         self.table_segments.setItem(row, 3, dur_item)
         
         # 3. Update generated final prompt cell
-        tpl_id = self.combo_templates.currentData()
-        motion_id = self.combo_motions.currentData()
-        tpl = self.template_manager.get_template(tpl_id) if self.template_manager else None
-        motion = self.template_manager.get_motion(motion_id) if self.template_manager else None
+        tpl, motion = self.get_effective_template_and_motion(row)
         template_content = tpl["content"] if tpl else "{spanish_text}"
         motion_content = motion["content"] if motion else ""
         
@@ -1135,6 +1150,7 @@ class ProjectDetailWidget(QWidget):
         tpl_id = self.combo_templates.currentData()
         self.project_model.selected_template_id = tpl_id if tpl_id else ""
         self.project_model.save()
+        self.refresh_prop_template_motion_combos()
         self.populate_segments_table()
 
     def on_motion_changed(self):
@@ -1143,6 +1159,7 @@ class ProjectDetailWidget(QWidget):
         motion_id = self.combo_motions.currentData()
         self.project_model.selected_motion_id = motion_id if motion_id else ""
         self.project_model.save()
+        self.refresh_prop_template_motion_combos()
         self.populate_segments_table()
 
     def init_property_panel(self):
@@ -1220,6 +1237,52 @@ class ProjectDetailWidget(QWidget):
         """)
         panel_layout.addWidget(self.lbl_prop_preview)
         
+        # Segment-specific template selector
+        panel_layout.addWidget(QLabel("📐 片段专属模板:"))
+        self.combo_prop_template = QComboBox()
+        self.combo_prop_template.setMaxVisibleItems(15)
+        self.combo_prop_template.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.combo_prop_template.setStyleSheet("""
+            QComboBox {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #D7CCC8;
+                background-color: white;
+                selection-background-color: #FFE0B2;
+                selection-color: #5D4037;
+                outline: none;
+            }
+        """)
+        self.combo_prop_template.currentIndexChanged.connect(self.on_prop_template_changed)
+        panel_layout.addWidget(self.combo_prop_template)
+        
+        # Segment-specific motion selector
+        panel_layout.addWidget(QLabel("🎥 片段专属运镜:"))
+        self.combo_prop_motion = QComboBox()
+        self.combo_prop_motion.setMaxVisibleItems(15)
+        self.combo_prop_motion.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.combo_prop_motion.setStyleSheet("""
+            QComboBox {
+                background-color: white;
+                border: 1px solid #D7CCC8;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #D7CCC8;
+                background-color: white;
+                selection-background-color: #FFE0B2;
+                selection-color: #5D4037;
+                outline: none;
+            }
+        """)
+        self.combo_prop_motion.currentIndexChanged.connect(self.on_prop_motion_changed)
+        panel_layout.addWidget(self.combo_prop_motion)
+
         # Mode selector
         panel_layout.addWidget(QLabel("⚙️ 生成模式:"))
         self.combo_prop_mode = QComboBox()
@@ -1257,6 +1320,12 @@ class ProjectDetailWidget(QWidget):
             self.combo_prop_image.blockSignals(True)
             self.combo_prop_image.setCurrentIndex(0)
             self.combo_prop_image.blockSignals(False)
+            self.combo_prop_template.blockSignals(True)
+            self.combo_prop_template.setCurrentIndex(0)
+            self.combo_prop_template.blockSignals(False)
+            self.combo_prop_motion.blockSignals(True)
+            self.combo_prop_motion.setCurrentIndex(0)
+            self.combo_prop_motion.blockSignals(False)
             self.lbl_prop_preview.clear()
             self.lbl_prop_preview.setText("无图片预览")
             self.combo_prop_mode.blockSignals(True)
@@ -1276,6 +1345,8 @@ class ProjectDetailWidget(QWidget):
         
         # Block signals to prevent infinite update loop
         self.combo_prop_image.blockSignals(True)
+        self.combo_prop_template.blockSignals(True)
+        self.combo_prop_motion.blockSignals(True)
         self.combo_prop_mode.blockSignals(True)
         
         # Populate selected segment data
@@ -1283,8 +1354,9 @@ class ProjectDetailWidget(QWidget):
         self.lbl_prop_index.setText(f"当前句：第 {row + 1} 句")
         self.txt_prop_text.setPlainText(seg.get("text", ""))
         
-        # Load images list into combo_prop_image
+        # Refresh combo lists & placeholders
         self.refresh_prop_image_combo_items()
+        self.refresh_prop_template_motion_combos()
         
         # Select current image
         image_name = seg.get("image_name", "")
@@ -1293,6 +1365,22 @@ class ProjectDetailWidget(QWidget):
             self.combo_prop_image.setCurrentIndex(img_idx)
         else:
             self.combo_prop_image.setCurrentIndex(0)
+
+        # Select current segment template
+        seg_tpl_id = seg.get("template_id", "")
+        tpl_idx = self.combo_prop_template.findData(seg_tpl_id)
+        if tpl_idx >= 0:
+            self.combo_prop_template.setCurrentIndex(tpl_idx)
+        else:
+            self.combo_prop_template.setCurrentIndex(0)
+            
+        # Select current segment motion
+        seg_motion_id = seg.get("motion_id", "")
+        motion_idx = self.combo_prop_motion.findData(seg_motion_id)
+        if motion_idx >= 0:
+            self.combo_prop_motion.setCurrentIndex(motion_idx)
+        else:
+            self.combo_prop_motion.setCurrentIndex(0)
             
         # Select current mode
         mode = seg.get("mode", "VIDEO_FRAMES")
@@ -1306,6 +1394,8 @@ class ProjectDetailWidget(QWidget):
         self.update_prop_image_preview(image_name)
         
         self.combo_prop_image.blockSignals(False)
+        self.combo_prop_template.blockSignals(False)
+        self.combo_prop_motion.blockSignals(False)
         self.combo_prop_mode.blockSignals(False)
 
     def refresh_prop_image_combo_items(self):
@@ -1404,13 +1494,163 @@ class ProjectDetailWidget(QWidget):
             return
         seg = self.project_model.spanish_segments[row]
         has_image = bool(seg.get("image_name"))
-        index_label = f"{row + 1} 📷" if has_image else f"{row + 1}"
+        has_custom = bool(seg.get("template_id")) or bool(seg.get("motion_id"))
+        index_label = str(row + 1)
+        if has_image:
+            index_label += " 📷"
+        if has_custom:
+            index_label += " ⚙️"
         
         self.table_segments.blockSignals(True)
         item = self.table_segments.item(row, 0)
         if item:
             item.setText(index_label)
         self.table_segments.blockSignals(False)
+
+    def get_effective_template_and_motion(self, row):
+        """Returns (tpl, motion) dicts for specified row, resolving segment overrides or global fallbacks."""
+        if not self.project_model or not self.template_manager:
+            return None, None
+        if row < 0 or row >= len(self.project_model.spanish_segments):
+            return None, None
+            
+        seg = self.project_model.spanish_segments[row]
+        
+        # 1. Template resolution
+        tpl_id = seg.get("template_id", "")
+        if not tpl_id:
+            tpl_id = self.combo_templates.currentData()
+        tpl = self.template_manager.get_template(tpl_id)
+        
+        # 2. Motion resolution
+        motion_id = seg.get("motion_id", "")
+        if not motion_id:
+            motion_id = self.combo_motions.currentData()
+        motion = self.template_manager.get_motion(motion_id)
+        
+        return tpl, motion
+
+    def refresh_prop_template_motion_combos(self):
+        """Populates the property panel template and motion dropdowns with dynamic fallback label."""
+        if not hasattr(self, "combo_prop_template") or not self.template_manager:
+            return
+            
+        self.combo_prop_template.blockSignals(True)
+        self.combo_prop_motion.blockSignals(True)
+        
+        current_tpl = self.combo_prop_template.currentData()
+        current_motion = self.combo_prop_motion.currentData()
+        
+        self.combo_prop_template.clear()
+        self.combo_prop_motion.clear()
+        
+        # Get current global names for default item text
+        global_tpl_id = self.combo_templates.currentData()
+        global_tpl = self.template_manager.get_template(global_tpl_id)
+        global_tpl_name = global_tpl["name"] if global_tpl else "未选择"
+        
+        global_motion_id = self.combo_motions.currentData()
+        global_motion = self.template_manager.get_motion(global_motion_id)
+        global_motion_name = global_motion["name"] if global_motion else "未选择"
+        
+        self.combo_prop_template.addItem(f"-- 遵循统一设置 ({global_tpl_name}) --", "")
+        self.combo_prop_motion.addItem(f"-- 遵循统一设置 ({global_motion_name}) --", "")
+        
+        for t in self.template_manager.templates:
+            self.combo_prop_template.addItem(t["name"], t["id"])
+        for m in self.template_manager.motions:
+            self.combo_prop_motion.addItem(m["name"], m["id"])
+            
+        if current_tpl:
+            idx = self.combo_prop_template.findData(current_tpl)
+            if idx >= 0:
+                self.combo_prop_template.setCurrentIndex(idx)
+        if current_motion:
+            idx = self.combo_prop_motion.findData(current_motion)
+            if idx >= 0:
+                self.combo_prop_motion.setCurrentIndex(idx)
+                
+        self.combo_prop_template.blockSignals(False)
+        self.combo_prop_motion.blockSignals(False)
+
+    def on_prop_template_changed(self):
+        row = getattr(self, "current_prop_row", -1)
+        if row < 0 or not self.project_model or row >= len(self.project_model.spanish_segments):
+            return
+            
+        tpl_id = self.combo_prop_template.currentData()
+        self.project_model.spanish_segments[row]["template_id"] = tpl_id if tpl_id else ""
+        self.update_segment_row_prompt(row)
+        self.project_model.save()
+
+    def on_prop_motion_changed(self):
+        row = getattr(self, "current_prop_row", -1)
+        if row < 0 or not self.project_model or row >= len(self.project_model.spanish_segments):
+            return
+            
+        motion_id = self.combo_prop_motion.currentData()
+        self.project_model.spanish_segments[row]["motion_id"] = motion_id if motion_id else ""
+        self.update_segment_row_prompt(row)
+        self.project_model.save()
+
+    def update_segment_row_prompt(self, row):
+        """Re-computes prompt and updates cell items for a specific segment row."""
+        if not self.project_model or row < 0 or row >= self.table_segments.rowCount():
+            return
+            
+        if row >= len(self.project_model.spanish_segments):
+            return
+            
+        seg = self.project_model.spanish_segments[row]
+        text_item = self.table_segments.item(row, 1)
+        raw_text = text_item.text().strip() if text_item else seg.get("text", "")
+        text = TextProcessor.remove_punctuation(raw_text)
+        
+        tpl, motion = self.get_effective_template_and_motion(row)
+        template_content = tpl["content"] if tpl else "{spanish_text}"
+        motion_content = motion["content"] if motion else ""
+        
+        final_prompt = template_content.replace("{spanish_text}", text)
+        final_prompt = final_prompt.replace("{camera_motion}", motion_content)
+        final_prompt = re.sub(r' +', ' ', final_prompt).strip()
+        
+        self.table_segments.blockSignals(True)
+        
+        # Update index & icons
+        self.refresh_table_row_index_label(row)
+        
+        # Update prompt cell
+        prompt_item = QTableWidgetItem(final_prompt)
+        prompt_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        self.table_segments.setItem(row, 4, prompt_item)
+        
+        # Re-apply row color if copied
+        if hasattr(self, 'copied_rows') and row in self.copied_rows:
+            self.change_row_color(row, copied=True)
+            
+        self.table_segments.blockSignals(False)
+
+    def reset_all_segments_to_unified(self):
+        """Clears all custom template and motion overrides for segments, resetting them to global."""
+        if not self.project_model or not self.project_model.spanish_segments:
+            return
+            
+        reply = QMessageBox.question(
+            self,
+            "确认重置",
+            "确定要清空所有片段的独立模板与运镜设置，全员恢复为使用顶部的统一设置吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            for seg in self.project_model.spanish_segments:
+                seg["template_id"] = ""
+                seg["motion_id"] = ""
+            self.project_model.save()
+            self.refresh_prop_template_motion_combos()
+            self.populate_segments_table()
+            QMessageBox.information(self, "成功", "已成功重置所有片段为统一设置！")
 
     def export_batch_json(self):
         """Generates task list JSON and opens batch copy dialog partitioned by points budget <= 50."""
@@ -1445,12 +1685,6 @@ class ProjectDetailWidget(QWidget):
                 QMessageBox.warning(self, "提示", f"导出失败：{rows_str} 尚未关联图片素材，请先选择关联图片素材！")
             return
             
-        motion_id = self.combo_motions.currentData()
-        tpl = self.template_manager.get_template(tpl_id) if self.template_manager else None
-        motion = self.template_manager.get_motion(motion_id) if self.template_manager else None
-        template_content = tpl["content"] if tpl else "{spanish_text}"
-        motion_content = motion["content"] if motion else ""
-        
         all_tasks = []
         skipped_copied_count = 0
         
@@ -1464,7 +1698,12 @@ class ProjectDetailWidget(QWidget):
             raw_text = seg.get("text", "")
             text = TextProcessor.remove_punctuation(raw_text)
             seg["text"] = text
-            # Generate final prompt
+            
+            # Generate final prompt resolving segment override or global fallback
+            tpl, motion = self.get_effective_template_and_motion(idx)
+            template_content = tpl["content"] if tpl else "{spanish_text}"
+            motion_content = motion["content"] if motion else ""
+            
             final_prompt = template_content.replace("{spanish_text}", text)
             final_prompt = final_prompt.replace("{camera_motion}", motion_content)
             final_prompt = re.sub(r' +', ' ', final_prompt).strip()
